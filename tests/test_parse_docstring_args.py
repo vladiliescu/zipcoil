@@ -13,10 +13,7 @@ class TestParseDocstringArgs:
         """
 
         result = _parse_docstring_args(docstring)
-        assert result == {
-            "arg1": "First argument",
-            "arg2": "Second argument"
-        }
+        assert result == {"arg1": "First argument", "arg2": "Second argument"}
 
     def test_args_with_multiline_descriptions(self):
         docstring = """Function description.
@@ -28,9 +25,9 @@ class TestParseDocstringArgs:
         """
 
         result = _parse_docstring_args(docstring)
+        assert len(result) == 2
         assert "arg1" in result
-        assert result["arg1"] == """This is a long description
-                  that spans multiple lines"""
+        assert result["arg1"] == "This is a long description\nthat spans multiple lines"
         assert "arg2" in result
 
     def test_no_args_section(self):
@@ -55,12 +52,10 @@ class TestParseDocstringArgs:
         """
 
         result = _parse_docstring_args(docstring)
-        assert result == {
-            "arg1": "First argument",
-            "arg2": "Second argument"
-        }
+        assert result == {"arg1": "First argument", "arg2": "Second argument"}
 
     def test_malformed_args_section(self):
+        """When the Args sections is malformed, throw your hands up and sigh."""
         docstring = """Function description.
 
         Args:
@@ -70,6 +65,4 @@ class TestParseDocstringArgs:
         """
 
         result = _parse_docstring_args(docstring)
-        # Should only parse valid lines
-        assert "arg2" in result
-        assert result["arg2"] == "Valid argument"
+        assert result == {}

@@ -1,7 +1,8 @@
 import functools
 import inspect
-import re
 from typing import get_args, get_origin, get_type_hints
+
+from docstring_parser import DocstringStyle, ParseError, parse
 
 
 def _type_to_json_schema(type_hint):
@@ -34,6 +35,7 @@ def _type_to_json_schema(type_hint):
     # Default to string for unknown types
     return "string"
 
+
 def _parse_docstring_args(docstring) -> dict:
     """Parse the Args section from a function's docstring.
 
@@ -43,22 +45,12 @@ def _parse_docstring_args(docstring) -> dict:
     if not docstring:
         return {}
 
-    # Look for Args: section
-    args_section_match = re.search(r'Args:\s*\n(.*?)(?:\n\n|\n[A-Z][a-z]+:|\Z)', docstring, re.DOTALL)
-    if not args_section_match:
+    try:
+        parsed = parse(docstring, DocstringStyle.GOOGLE)
+    except ParseError:
         return {}
+    return {param.arg_name: param.description for param in parsed.params}
 
-    args_text = args_section_match.group(1)
-    arg_descriptions = {}
-
-    # Parse each argument line (format: "arg_name: description")
-    for line in args_text.split('\n'):
-        line = line.strip()
-        if ':' in line:
-            arg_name, description = line.split(':', 1)
-            arg_descriptions[arg_name.strip()] = description.strip()
-
-    return arg_descriptions
 
 def tool(func):
     """
@@ -77,7 +69,7 @@ def tool(func):
 
     # Parse docstring for descriptions
     docstring = inspect.getdoc(func) or ""
-    description = docstring.split('\n\n')[0].strip() if docstring else func.__name__
+    description = docstring.split("\n\n")[0].strip() if docstring else func.__name__
     arg_descriptions = _parse_docstring_args(docstring)
 
     # Build parameters schema
@@ -89,10 +81,7 @@ def tool(func):
             type_hint = type_hints[param_name]
             json_type = _type_to_json_schema(type_hint)
 
-            properties[param_name] = {
-                "type": json_type,
-                "description": arg_descriptions.get(param_name, param_name)
-            }
+            properties[param_name] = {"type": json_type, "description": arg_descriptions.get(param_name, param_name)}
 
             # Check if parameter is required (no default value)
             if param.default == inspect.Parameter.empty:
@@ -108,10 +97,10 @@ def tool(func):
                 "type": "object",
                 "properties": properties,
                 "required": required,
-                "additionalProperties": False
+                "additionalProperties": False,
             },
-            "strict": True
-        }
+            "strict": True,
+        },
     }
 
     # Store the schema on the function for easy access
