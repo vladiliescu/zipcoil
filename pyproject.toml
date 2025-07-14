@@ -1,0 +1,11 @@
+[project]
+name = "Smith"
+version = "0.1.0"
+description = "Smith simplifies OpenAI tool usage"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["openai>=1.0.0"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
