@@ -67,7 +67,7 @@ def tool(func):
     type_hints = get_type_hints(func)
 
     docstring = inspect.getdoc(func) or ""
-    description = docstring.split("\n\n")[0].strip() if docstring else func.__name__
+    description = docstring.split("\n\n")[0].strip() if docstring else ""
     arg_descriptions = _parse_docstring_args(docstring)
 
     properties = {}
@@ -78,7 +78,7 @@ def tool(func):
             type_hint = type_hints[param_name]
             json_type = _type_to_json_schema(type_hint)
 
-            properties[param_name] = {"type": json_type, "description": arg_descriptions.get(param_name, param_name)}
+            properties[param_name] = {"type": json_type, "description": arg_descriptions.get(param_name, "")}
 
             # Check if parameter is required (no default value)
             if param.default == inspect.Parameter.empty:
