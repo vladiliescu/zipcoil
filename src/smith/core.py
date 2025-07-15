@@ -6,36 +6,53 @@ from typing import Union, get_args, get_origin, get_type_hints
 from docstring_parser import DocstringStyle, ParseError, parse
 
 
-def _type_to_json_schema(type_hint):
+def _enum_type_to_json_schema(type_hint):
+    """Convert Enum types to JSON schema format."""
+
+    # Use the first member to decide the underlying primitive type.
+    sample_value = next(iter(type_hint)).value
+    if isinstance(sample_value, str):
+        json_type = "string"
+    elif isinstance(sample_value, bool):
+        json_type = "boolean"
+    elif isinstance(sample_value, int):
+        json_type = "integer"
+    elif isinstance(sample_value, float):
+        json_type = "number"
+    else:
+        json_type = "string"  # fallback
+
+    return {"type": json_type, "enum": [member.value for member in type_hint]}
+
+
+def _type_to_json_schema(type_hint) -> dict:
     """Convert Python type hints to JSON schema types."""
     if inspect.isclass(type_hint) and issubclass(type_hint, Enum):
-        return f'enum: [{",".join([str(member.value) for member in type_hint])}]'
+        return _enum_type_to_json_schema(type_hint)
 
     if type_hint == str:
-        return "string"
+        return {"type": "string"}
     elif type_hint == int:
-        return "integer"
+        return {"type": "integer"}
     elif type_hint == float:
-        return "number"
+        return {"type": "number"}
     elif type_hint == bool:
-        return "boolean"
-    elif type_hint == list:
-        return "array"
-    elif type_hint == dict:
-        return "object"
-    elif get_origin(type_hint) is list:
-        return "array"
-    elif get_origin(type_hint) is dict:
-        return "object"
+        return {"type": "boolean"}
+    elif type_hint == list or get_origin(type_hint) is list:
+        return {"type": "array"}
+    elif type_hint == dict or get_origin(type_hint) is dict:
+        return {"type": "object"}
     elif get_origin(type_hint) is Union:
         # Handle Optional[T] which is Union[T, None]
         args = get_args(type_hint)
         if len(args) == 2 and type(None) in args:
             # This is Optional[T], return the schema for T
             non_none_type = args[0] if args[1] is type(None) else args[1]
-            return _type_to_json_schema(non_none_type)
+            schema = _type_to_json_schema(non_none_type)
+            schema["type"] = [schema["type"], "null"] if isinstance(schema, dict) else [schema, "null"]
+            return schema
     # Default to string for unknown types
-    return "string"
+    return {"type": "string"}
 
 
 def _parse_docstring_args(docstring) -> dict:
@@ -78,11 +95,10 @@ def tool(func):
             type_hint = type_hints[param_name]
             json_type = _type_to_json_schema(type_hint)
 
-            properties[param_name] = {"type": json_type, "description": arg_descriptions.get(param_name, "")}
-
-            # Check if parameter is required (no default value)
-            if param.default == inspect.Parameter.empty:
-                required.append(param_name)
+            properties[param_name] = json_type
+            properties[param_name]["description"] = arg_descriptions.get(param_name, "")
+            # mark all parameters as required to comply with strict=True
+            required.append(param_name)
 
     tool_schema = {
         "type": "function",

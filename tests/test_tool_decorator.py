@@ -45,7 +45,7 @@ class TestToolDecorator:
         """Test a function with multiple arguments including optional ones."""
 
         @tool
-        def calculate(x: int, y: float, operation: str = "add") -> float:
+        def calculate(x: int, y: float, operation: str | None) -> float:
             """Perform a calculation on two numbers.
 
             Args:
@@ -62,21 +62,22 @@ class TestToolDecorator:
         assert schema["function"]["description"] == "Perform a calculation on two numbers."
 
         params = schema["function"]["parameters"]
-        assert set(params["required"]) == {"x", "y"}  # operation has a default value
+        # operation has a default value, but still needs to be included here b/c strict=True
+        assert set(params["required"]) == {"x", "y", "operation"}
 
         properties = params["properties"]
         assert properties["x"]["type"] == "integer"
         assert properties["x"]["description"] == "First number (integer)"
         assert properties["y"]["type"] == "number"
         assert properties["y"]["description"] == "Second number (float)"
-        assert properties["operation"]["type"] == "string"
+        assert properties["operation"]["type"] == ["string", "null"]
         assert properties["operation"]["description"] == "Type of operation to perform"
 
     def test_function_with_optional_type_hint(self):
         """Test a function with Optional type hints."""
 
         @tool
-        def search(query: str, limit: Optional[int] = None) -> List[str]:
+        def search(query: str, limit: Optional[int]) -> List[str]:
             """Search for items matching a query.
 
             Args:
@@ -88,11 +89,11 @@ class TestToolDecorator:
         schema = search._tool_schema
 
         params = schema["function"]["parameters"]
-        assert params["required"] == ["query"]
+        assert params["required"] == ["query", "limit"]
 
         properties = params["properties"]
         assert properties["query"]["type"] == "string"
-        assert properties["limit"]["type"] == "integer"  # Optional[int] -> int
+        assert properties["limit"]["type"] == ["integer", "null"]
 
     def test_function_with_various_types(self):
         """Test a function with various Python types."""
@@ -134,7 +135,8 @@ class TestToolDecorator:
         assert properties["active"]["type"] == "boolean"
         assert properties["tags"]["type"] == "array"
         assert properties["metadata"]["type"] == "object"
-        assert properties["status"]["type"] == "enum: [0,1,2]"
+        assert properties["status"]["type"] == "integer"
+        assert properties["status"]["enum"] == [0, 1, 2]
 
     def test_function_without_docstring(self):
         """Test a function without a docstring."""
