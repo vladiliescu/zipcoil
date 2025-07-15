@@ -1,14 +1,12 @@
 import functools
 import inspect
-from typing import get_args, get_origin, get_type_hints
+from typing import Union, get_args, get_origin, get_type_hints
 
 from docstring_parser import DocstringStyle, ParseError, parse
 
 
 def _type_to_json_schema(type_hint):
     """Convert Python type hints to JSON schema types."""
-    from typing import Union
-
     if type_hint == str:
         return "string"
     elif type_hint == int:
@@ -56,23 +54,18 @@ def tool(func):
     """
     Decorator that extracts function metadata and converts it to OpenAI function calling JSON schema format.
     """
-    # Import Union here to avoid circular import issues
-    from typing import Union
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         return func(*args, **kwargs)
 
-    # Get function signature and type hints
     sig = inspect.signature(func)
     type_hints = get_type_hints(func)
 
-    # Parse docstring for descriptions
     docstring = inspect.getdoc(func) or ""
     description = docstring.split("\n\n")[0].strip() if docstring else func.__name__
     arg_descriptions = _parse_docstring_args(docstring)
 
-    # Build parameters schema
     properties = {}
     required = []
 
@@ -87,7 +80,6 @@ def tool(func):
             if param.default == inspect.Parameter.empty:
                 required.append(param_name)
 
-    # Build the complete tool schema
     tool_schema = {
         "type": "function",
         "function": {
@@ -103,7 +95,6 @@ def tool(func):
         },
     }
 
-    # Store the schema on the function for easy access
     wrapper._tool_schema = tool_schema
 
     return wrapper
