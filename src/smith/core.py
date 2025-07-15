@@ -1,5 +1,6 @@
 import functools
 import inspect
+from enum import Enum
 from typing import Union, get_args, get_origin, get_type_hints
 
 from docstring_parser import DocstringStyle, ParseError, parse
@@ -7,6 +8,9 @@ from docstring_parser import DocstringStyle, ParseError, parse
 
 def _type_to_json_schema(type_hint):
     """Convert Python type hints to JSON schema types."""
+    if inspect.isclass(type_hint) and issubclass(type_hint, Enum):
+        return f'enum: [{",".join([str(member.value) for member in type_hint])}]'
+
     if type_hint == str:
         return "string"
     elif type_hint == int:

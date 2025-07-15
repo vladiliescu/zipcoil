@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
@@ -96,6 +97,11 @@ class TestToolDecorator:
     def test_function_with_various_types(self):
         """Test a function with various Python types."""
 
+        class Status(Enum):
+            PENDING = 0
+            SUCCESS = 1
+            FAILURE = 2
+
         @tool
         def process_data(
             text: str,
@@ -104,6 +110,7 @@ class TestToolDecorator:
             active: bool,
             tags: List[str],
             metadata: Dict[str, str | int | float | bool],
+            status: Status,
         ) -> str:
             """Process data with various types.
 
@@ -114,6 +121,7 @@ class TestToolDecorator:
                 active: Whether active
                 tags: List of tags
                 metadata: Metadata dictionary
+                status: Status of the process
             """
             return "processed"
 
@@ -126,6 +134,7 @@ class TestToolDecorator:
         assert properties["active"]["type"] == "boolean"
         assert properties["tags"]["type"] == "array"
         assert properties["metadata"]["type"] == "object"
+        assert properties["status"]["type"] == "enum: [0,1,2]"
 
     def test_function_without_docstring(self):
         """Test a function without a docstring."""
