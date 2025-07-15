@@ -9,6 +9,8 @@ import requests
 from bs4 import BeautifulSoup
 from openai import AzureOpenAI
 
+from smith import tool
+
 client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
     azure_endpoint=os.getenv("AZURE_OPENAI_API_BASE"),
@@ -121,38 +123,7 @@ def get_homepage(blogger: str) -> str:
     # return get_search_results_for(f"{blogger} homepage")[0]["url"]
 
 
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_homepage",
-            "description": "Returns the homepage of a particular blogger.",
-            "parameters": {
-                "type": "object",
-                "properties": {"blogger": {"type": "string", "description": "Blogger name"}},
-                "required": ["blogger"],
-                "additionalProperties": False,
-            },
-            "strict": True,
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "load_page_content",
-            "description": "Returns the content of a particular webpage.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "Url of the webpage for which to retrieve the content"}
-                },
-                "required": ["url"],
-                "additionalProperties": False,
-            },
-            "strict": True,
-        },
-    },
-]
+tools = [get_homepage, load_page_content]
 
 
 def call_function(name, args):
@@ -169,7 +140,9 @@ total_input_token_count = 0
 total_output_token_count = 0
 
 while True:
-    completion = client.chat.completions.create(model=openai_chatmodel, messages=messages, tools=tools)
+    completion = client.chat.completions.create(
+        model=openai_chatmodel, messages=messages, tools=[tool._tool_schema for tool in tools]
+    )
 
     total_input_token_count += completion.usage.prompt_tokens
     total_output_token_count += completion.usage.completion_tokens
