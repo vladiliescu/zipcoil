@@ -39,6 +39,16 @@ class TestTypeToJsonSchema:
             "enum": ["red", "green", "blue"],
         }
 
+    def test_new_union_syntax(self):
+        """Test conversion of new union syntax (T | None)."""
+        assert _type_to_json_schema(str | None) == {"type": ["string", "null"]}
+        assert _type_to_json_schema(int | None) == {"type": ["integer", "null"]}
+        assert _type_to_json_schema(bool | None) == {"type": ["boolean", "null"]}
+        assert _type_to_json_schema(Color | None) == {
+            "type": ["string", "null"],
+            "enum": ["red", "green", "blue"],
+        }
+
     def test_unknown_types(self):
         """Test that unknown types default to string."""
 

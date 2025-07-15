@@ -1,5 +1,6 @@
 import functools
 import inspect
+import types
 from enum import Enum
 from typing import Union, get_args, get_origin, get_type_hints
 
@@ -42,8 +43,8 @@ def _type_to_json_schema(type_hint) -> dict:
         return {"type": "array"}
     elif type_hint == dict or get_origin(type_hint) is dict:
         return {"type": "object"}
-    elif get_origin(type_hint) is Union:
-        # Handle Optional[T] which is Union[T, None]
+    elif get_origin(type_hint) is Union or isinstance(type_hint, types.UnionType):
+        # Handle Optional[T] which is Union[T, None] or T | None
         args = get_args(type_hint)
         if len(args) == 2 and type(None) in args:
             # This is Optional[T], return the schema for T
