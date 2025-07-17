@@ -15,8 +15,6 @@ from openai.types.chat import (
     ChatCompletionAudioParam,
     ChatCompletionMessageParam,
     ChatCompletionPredictionContentParam,
-    ChatCompletionToolChoiceOptionParam,
-    ChatCompletionToolParam,
     completion_create_params,
 )
 
@@ -138,7 +136,12 @@ def tool(func):
 class Agent:
     """An abstractization of the OpenAI tool-calling loop"""
 
-    def __init__(self, model, client, tools: list) -> None:
+    def __init__(
+        self,
+        model: Union[str, ChatModel],
+        client: OpenAI,
+        tools: list,
+    ) -> None:
         self.model = model
         self.client = client
         self.tools = tools
@@ -146,10 +149,12 @@ class Agent:
     def _call_function(self, name: str, args: dict):
         for potential_tool in self.tools:
             if potential_tool._tool_schema["function"]["name"] == name:
-                return potential_tool(**args)
-        raise ValueError(f"Tool {name} not found in agent's tools.")
+                try:
+                    return potential_tool(**args)
+                except Exception as e:
+                    return f"Error executing tool `{name}`: {str(e)}"
 
-        return "No tool found with the name: {}".format(name)
+        return f"Tool `{name}` not found"
 
     def run(
         self,
@@ -186,10 +191,11 @@ class Agent:
         timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> ChatCompletion:
         # TODO: add a limit to the number of messages
+        mutable_messages = list(messages)
         while True:
             completion = self.client.chat.completions.create(
                 model=self.model,
-                messages=messages,
+                messages=mutable_messages,
                 tools=[potential_tool._tool_schema for potential_tool in self.tools],
                 n=1,  # Only one completion at a time otherwise the logic gets messy
                 audio=audio,
@@ -221,13 +227,13 @@ class Agent:
             if completion.choices[0].finish_reason == "stop":
                 return completion
             elif completion.choices[0].finish_reason == "tool_calls":
-                messages.append(completion.choices[0].message)
+                mutable_messages.append(completion.choices[0].message)
                 for tool_call in completion.choices[0].message.tool_calls:
                     name = tool_call.function.name
                     args = json.loads(tool_call.function.arguments)
 
                     result = self._call_function(name, args)
 
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
+                    mutable_messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
             else:
                 raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
