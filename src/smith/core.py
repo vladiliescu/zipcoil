@@ -18,6 +18,8 @@ from openai.types.chat import (
     completion_create_params,
 )
 
+from smith.types import ToolProtocol
+
 
 def _enum_type_to_json_schema(type_hint):
     """Convert Enum types to JSON schema format."""
@@ -145,7 +147,7 @@ class Agent:
         self,
         model: Union[str, ChatModel],
         client: OpenAI,
-        tools: list,
+        tools: Iterable[ToolProtocol],
     ) -> None:
         self.model = model
         self.client = client
@@ -233,6 +235,8 @@ class Agent:
                 return completion
             elif completion.choices[0].finish_reason == "tool_calls":
                 mutable_messages.append(completion.choices[0].message)
+
+                assert completion.choices[0].message.tool_calls is not None  # type guard
                 for tool_call in completion.choices[0].message.tool_calls:
                     name = tool_call.function.name
                     args = json.loads(tool_call.function.arguments)
