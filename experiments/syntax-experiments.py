@@ -9,7 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 from openai import AzureOpenAI
 
-from smith import tool
+from smith import Agent, tool
 
 client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
@@ -139,26 +139,32 @@ messages = [{"role": "user", "content": query}]
 total_input_token_count = 0
 total_output_token_count = 0
 
-while True:
-    completion = client.chat.completions.create(
-        model=openai_chatmodel, messages=messages, tools=[tool._tool_schema for tool in tools]
-    )
 
-    total_input_token_count += completion.usage.prompt_tokens
-    total_output_token_count += completion.usage.completion_tokens
+agent = Agent(openai_chatmodel, client=client, tools=[get_homepage, load_page_content])
 
-    if completion.choices[0].finish_reason == "stop":
-        print(f"{BOLD}Final answer: {completion.choices[0].message.content}{RESET}")
-        break
-    elif completion.choices[0].finish_reason == "tool_calls":
-        messages.append(completion.choices[0].message)
-        for tool_call in completion.choices[0].message.tool_calls:
-            name = tool_call.function.name
-            args = json.loads(tool_call.function.arguments)
+result = agent.run(messages)
+print(result.choices[0].message.content)
 
-            result = call_function(name, args)
-            print(f"Called {BOLD}{name}({args}){RESET} and it returned {GRAY}{result[:300]}{RESET}")
-
-            messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
-    else:
-        raise Exception("We're not supposed to be here")
+# while True:
+#     completion = client.chat.completions.create(
+#         model=openai_chatmodel, messages=messages, tools=[tool._tool_schema for tool in tools]
+#     )
+#
+#     total_input_token_count += completion.usage.prompt_tokens
+#     total_output_token_count += completion.usage.completion_tokens
+#
+#     if completion.choices[0].finish_reason == "stop":
+#         print(f"{BOLD}Final answer: {completion.choices[0].message.content}{RESET}")
+#         break
+#     elif completion.choices[0].finish_reason == "tool_calls":
+#         messages.append(completion.choices[0].message)
+#         for tool_call in completion.choices[0].message.tool_calls:
+#             name = tool_call.function.name
+#             args = json.loads(tool_call.function.arguments)
+#
+#             result = call_function(name, args)
+#             print(f"Called {BOLD}{name}({args}){RESET} and it returned {GRAY}{result[:300]}{RESET}")
+#
+#             messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
+#     else:
+#         raise Exception("We're not supposed to be here")

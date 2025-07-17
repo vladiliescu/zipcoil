@@ -1,5 +1,6 @@
 import functools
 import inspect
+import json
 import types
 from enum import Enum
 from typing import Union, get_args, get_origin, get_type_hints
@@ -119,3 +120,41 @@ def tool(func):
     wrapper._tool_schema = tool_schema
 
     return wrapper
+
+
+class Agent:
+    """An abstractization of the OpenAI tool-calling loop"""
+
+    def __init__(self, model, client, tools: list) -> None:
+        self.model = model
+        self.client = client
+        self.tools = tools
+
+    def _call_function(self, name: str, args: dict):
+        for potential_tool in self.tools:
+            if potential_tool._tool_schema["function"]["name"] == name:
+                return potential_tool(**args)
+        raise ValueError(f"Tool {name} not found in agent's tools.")
+
+    def run(self, messages: list):
+        # TODO: add a limit to the number of messages
+        while True:
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=[potential_tool._tool_schema for potential_tool in self.tools],
+            )
+
+            if completion.choices[0].finish_reason == "stop":
+                return completion
+            elif completion.choices[0].finish_reason == "tool_calls":
+                messages.append(completion.choices[0].message)
+                for tool_call in completion.choices[0].message.tool_calls:
+                    name = tool_call.function.name
+                    args = json.loads(tool_call.function.arguments)
+
+                    result = self._call_function(name, args)
+
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
+            else:
+                raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
