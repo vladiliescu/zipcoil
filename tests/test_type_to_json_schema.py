@@ -1,13 +1,19 @@
 from enum import Enum
 from typing import Dict, List, Optional
 
-from smith import _type_to_json_schema
+from smith.core import _type_to_json_schema
 
 
 class Color(Enum):
     RED = "red"
     GREEN = "green"
     BLUE = "blue"
+
+
+class Mixed(Enum):
+    First = 1
+    Second = "second"
+    Third = False
 
 
 class TestTypeToJsonSchema:
@@ -23,6 +29,7 @@ class TestTypeToJsonSchema:
         assert _type_to_json_schema(list) == {"type": "array"}
         assert _type_to_json_schema(dict) == {"type": "object"}
         assert _type_to_json_schema(Color) == {"type": "string", "enum": ["red", "green", "blue"]}
+        assert _type_to_json_schema(Mixed) == {"type": "string", "enum": ["1", "second", "False"]}
 
     def test_generic_types(self):
         """Test conversion of generic types."""

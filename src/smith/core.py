@@ -22,6 +22,11 @@ from openai.types.chat import (
 def _enum_type_to_json_schema(type_hint):
     """Convert Enum types to JSON schema format."""
 
+    # If the enum has mixed types, default to string.
+    member_types = {type(member.value) for member in type_hint}
+    if len(member_types) > 1:
+        return {"type": "string", "enum": [str(member.value) for member in type_hint]}
+
     # Use the first member to decide the underlying primitive type.
     sample_value = next(iter(type_hint)).value
     if isinstance(sample_value, str):

@@ -1,4 +1,4 @@
-from smith import _parse_docstring_args
+from smith.core import _parse_docstring_args
 
 
 class TestParseDocstringArgs:
