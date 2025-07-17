@@ -3,9 +3,22 @@ import inspect
 import json
 import types
 from enum import Enum
-from typing import Union, get_args, get_origin, get_type_hints
+from typing import Dict, Iterable, List, Literal, Optional, Union, get_args, get_origin, get_type_hints
 
+import httpx
 from docstring_parser import DocstringStyle, ParseError, parse
+from openai import NOT_GIVEN, NotGiven, OpenAI
+from openai._types import Body, Headers, Query
+from openai.types import ChatModel, Metadata, ReasoningEffort
+from openai.types.chat import (
+    ChatCompletion,
+    ChatCompletionAudioParam,
+    ChatCompletionMessageParam,
+    ChatCompletionPredictionContentParam,
+    ChatCompletionToolChoiceOptionParam,
+    ChatCompletionToolParam,
+    completion_create_params,
+)
 
 
 def _enum_type_to_json_schema(type_hint):
@@ -136,13 +149,73 @@ class Agent:
                 return potential_tool(**args)
         raise ValueError(f"Tool {name} not found in agent's tools.")
 
-    def run(self, messages: list):
+        return "No tool found with the name: {}".format(name)
+
+    def run(
+        self,
+        messages: Iterable[ChatCompletionMessageParam],
+        audio: Optional[ChatCompletionAudioParam] | NotGiven = NOT_GIVEN,
+        frequency_penalty: Optional[float] | NotGiven = NOT_GIVEN,
+        logit_bias: Optional[Dict[str, int]] | NotGiven = NOT_GIVEN,
+        logprobs: Optional[bool] | NotGiven = NOT_GIVEN,
+        max_completion_tokens: Optional[int] | NotGiven = NOT_GIVEN,
+        max_tokens: Optional[int] | NotGiven = NOT_GIVEN,
+        metadata: Optional[Metadata] | NotGiven = NOT_GIVEN,
+        modalities: Optional[List[Literal["text", "audio"]]] | NotGiven = NOT_GIVEN,
+        # n: Optional[int] | NotGiven = NOT_GIVEN,
+        # parallel_tool_calls: bool | NotGiven = NOT_GIVEN,
+        prediction: Optional[ChatCompletionPredictionContentParam] | NotGiven = NOT_GIVEN,
+        presence_penalty: Optional[float] | NotGiven = NOT_GIVEN,
+        reasoning_effort: Optional[ReasoningEffort] | NotGiven = NOT_GIVEN,
+        response_format: completion_create_params.ResponseFormat | NotGiven = NOT_GIVEN,
+        seed: Optional[int] | NotGiven = NOT_GIVEN,
+        service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] | NotGiven = NOT_GIVEN,
+        stop: Union[Optional[str], List[str], None] | NotGiven = NOT_GIVEN,
+        store: Optional[bool] | NotGiven = NOT_GIVEN,
+        # stream: Optional[Literal[False]] | Literal[True] | NotGiven = NOT_GIVEN,
+        # stream_options: Optional[ChatCompletionStreamOptionsParam] | NotGiven = NOT_GIVEN,
+        temperature: Optional[float] | NotGiven = NOT_GIVEN,
+        # tool_choice: ChatCompletionToolChoiceOptionParam | NotGiven = NOT_GIVEN,
+        # tools: Iterable[ChatCompletionToolParam] | NotGiven = NOT_GIVEN,
+        top_logprobs: Optional[int] | NotGiven = NOT_GIVEN,
+        top_p: Optional[float] | NotGiven = NOT_GIVEN,
+        user: str | NotGiven = NOT_GIVEN,
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+    ) -> ChatCompletion:
         # TODO: add a limit to the number of messages
         while True:
             completion = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 tools=[potential_tool._tool_schema for potential_tool in self.tools],
+                n=1,  # Only one completion at a time otherwise the logic gets messy
+                audio=audio,
+                frequency_penalty=frequency_penalty,
+                logit_bias=logit_bias,
+                logprobs=logprobs,
+                max_completion_tokens=max_completion_tokens,
+                max_tokens=max_tokens,
+                metadata=metadata,
+                modalities=modalities,
+                prediction=prediction,
+                presence_penalty=presence_penalty,
+                reasoning_effort=reasoning_effort,
+                response_format=response_format,
+                seed=seed,
+                service_tier=service_tier,
+                stop=stop,
+                store=store,
+                temperature=temperature,
+                top_logprobs=top_logprobs,
+                top_p=top_p,
+                user=user,
+                extra_headers=extra_headers,
+                extra_query=extra_query,
+                extra_body=extra_body,
+                timeout=timeout,
             )
 
             if completion.choices[0].finish_reason == "stop":
