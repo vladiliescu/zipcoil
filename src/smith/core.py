@@ -194,10 +194,10 @@ class Agent:
         extra_query: Query | None = None,
         extra_body: Body | None = None,
         timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        max_iterations: int = 10,
     ) -> ChatCompletion:
-        # TODO: add a limit to the number of messages
         mutable_messages = list(messages)
-        while True:
+        for iteration in range(max_iterations):
             completion = self.client.chat.completions.create(
                 model=self.model,
                 messages=mutable_messages,
@@ -242,3 +242,5 @@ class Agent:
                     mutable_messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
             else:
                 raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
+
+        raise RuntimeError(f"Maximum iterations ({max_iterations}) reached without completion")
