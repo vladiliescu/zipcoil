@@ -1,3 +1,4 @@
+import asyncio
 import functools
 import inspect
 import json
@@ -96,6 +97,13 @@ def tool(func):
     Decorator that extracts function metadata and converts it to OpenAI function calling JSON schema format.
     """
 
+    # Check if the function is async and reject it immediately
+    if asyncio.iscoroutinefunction(func):
+        raise ValueError(
+            f"Async tools are not supported. Function '{func.__name__}' is an async function. "
+            f"Please use a synchronous function instead."
+        )
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         return func(*args, **kwargs)
@@ -151,9 +159,17 @@ class Agent:
     ) -> None:
         self.model = model
         self.client = client
-        self.tools = tools
-        self.tool_map = {tool._tool_schema["function"]["name"]: tool for tool in tools}
+        self.tools = list(tools)  # Convert to list to ensure it's iterable multiple times
+        self.tool_map = {}
 
+        for tool in self.tools:
+            if not hasattr(tool, "_tool_schema"):
+                raise ValueError(f"Tool {tool} is not decorated with @tool")
+
+            tool_name = tool._tool_schema["function"]["name"]
+            if tool_name in self.tool_map:
+                raise ValueError(f"Duplicate tool name: {tool_name}")
+            self.tool_map[tool_name] = tool
 
     def _call_tool(self, name: str, args: dict):
         user_tool = self.tool_map.get(name, None)
@@ -165,7 +181,6 @@ class Agent:
             return str(result) if not isinstance(result, str) else result
         except Exception as e:
             return f"Error executing tool `{name}`: {str(e)}"
-
 
     def run(
         self,
@@ -247,11 +262,13 @@ class Agent:
                     try:
                         args = json.loads(tool_call.function.arguments)
                     except json.JSONDecodeError as e:
-                        mutable_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": f"Error decoding arguments for tool `{name}`: {str(e)}"
-                        })
+                        mutable_messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": f"Error decoding arguments for tool `{name}`: {str(e)}",
+                            }
+                        )
                         continue
 
                     result = self._call_tool(name, args)

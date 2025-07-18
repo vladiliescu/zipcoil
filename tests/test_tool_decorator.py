@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import Dict, List, Optional
 
+import pytest
 from dotenv import load_dotenv
 
 from smith import tool
@@ -172,3 +173,18 @@ class TestToolDecorator:
         assert result == 8
 
         assert hasattr(add_numbers, "_tool_schema")
+
+    def test_async_tool_rejection(self):
+        """Test that async tools are rejected during decoration."""
+
+        # The error should be raised when applying the @tool decorator
+        with pytest.raises(ValueError, match="Async tools are not supported"):
+
+            @tool
+            async def async_get_weather(city: str) -> str:
+                """Get weather information for a city.
+
+                Args:
+                    city: The city name
+                """
+                return f"Weather in {city}: sunny"
