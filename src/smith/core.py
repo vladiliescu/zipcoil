@@ -157,7 +157,8 @@ class Agent:
         for potential_tool in self.tools:
             if potential_tool._tool_schema["function"]["name"] == name:
                 try:
-                    return potential_tool(**args)
+                    result = potential_tool(**args)
+                    return str(result) if not isinstance(result, str) else result
                 except Exception as e:
                     return f"Error executing tool `{name}`: {str(e)}"
 
@@ -239,10 +240,18 @@ class Agent:
                 assert completion.choices[0].message.tool_calls is not None  # type guard
                 for tool_call in completion.choices[0].message.tool_calls:
                     name = tool_call.function.name
-                    args = json.loads(tool_call.function.arguments)
+
+                    try:
+                        args = json.loads(tool_call.function.arguments)
+                    except json.JSONDecodeError as e:
+                        mutable_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": f"Error decoding arguments for tool `{name}`: {str(e)}"
+                        })
+                        continue
 
                     result = self._call_function(name, args)
-
                     mutable_messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
             else:
                 raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
