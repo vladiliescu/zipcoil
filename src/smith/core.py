@@ -152,17 +152,20 @@ class Agent:
         self.model = model
         self.client = client
         self.tools = tools
+        self.tool_map = {tool._tool_schema["function"]["name"]: tool for tool in tools}
 
-    def _call_function(self, name: str, args: dict):
-        for potential_tool in self.tools:
-            if potential_tool._tool_schema["function"]["name"] == name:
-                try:
-                    result = potential_tool(**args)
-                    return str(result) if not isinstance(result, str) else result
-                except Exception as e:
-                    return f"Error executing tool `{name}`: {str(e)}"
 
-        return f"Tool `{name}` not found"
+    def _call_tool(self, name: str, args: dict):
+        user_tool = self.tool_map.get(name, None)
+        if user_tool is None:
+            return f"Tool `{name}` not found"
+
+        try:
+            result = user_tool(**args)
+            return str(result) if not isinstance(result, str) else result
+        except Exception as e:
+            return f"Error executing tool `{name}`: {str(e)}"
+
 
     def run(
         self,
@@ -251,7 +254,7 @@ class Agent:
                         })
                         continue
 
-                    result = self._call_function(name, args)
+                    result = self._call_tool(name, args)
                     mutable_messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
             else:
                 raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
