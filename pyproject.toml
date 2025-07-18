@@ -26,12 +26,12 @@ Homepage = "https://github.com/vladiliescu/smith"
 Repository = "https://github.com/vladiliescu/smith"
 
 [tool.ruff]
-select = ["I"]           #, "E", "W", "F"]
+lint.select = ["I"]           #, "E", "W", "F"]
 line-length = 120
 target-version = "py311"
 src = ["src"]
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["smith"]
 
 [tool.pytest.ini_options]
