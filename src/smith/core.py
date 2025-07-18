@@ -160,16 +160,19 @@ class Agent:
         self.model = model
         self.client = client
         self.tools = list(tools)  # Convert to list to ensure it's iterable multiple times
+        self.tool_schemas = []
         self.tool_map = {}
 
-        for tool in self.tools:
-            if not hasattr(tool, "_tool_schema"):
-                raise ValueError(f"Tool {tool} is not decorated with @tool")
+        for tool_func in self.tools:
+            if not hasattr(tool_func, "_tool_schema"):
+                raise ValueError(f"Tool {tool_func} is not decorated with @tool")
 
-            tool_name = tool._tool_schema["function"]["name"]
+            tool_name = tool_func._tool_schema["function"]["name"]
             if tool_name in self.tool_map:
                 raise ValueError(f"Duplicate tool name: {tool_name}")
-            self.tool_map[tool_name] = tool
+
+            self.tool_map[tool_name] = tool_func
+            self.tool_schemas.append(tool_func._tool_schema)
 
     def _call_tool(self, name: str, args: dict):
         user_tool = self.tool_map.get(name, None)
@@ -222,7 +225,7 @@ class Agent:
             completion = self.client.chat.completions.create(
                 model=self.model,
                 messages=mutable_messages,
-                tools=[potential_tool._tool_schema for potential_tool in self.tools],
+                tools=self.tool_schemas,
                 n=1,  # Only one completion at a time otherwise the logic gets messy
                 audio=audio,
                 frequency_penalty=frequency_penalty,
