@@ -2,6 +2,7 @@ import asyncio
 import functools
 import inspect
 import json
+import logging
 import types
 from enum import Enum
 from typing import Dict, Iterable, List, Literal, Optional, Union, get_args, get_origin, get_type_hints
@@ -162,6 +163,7 @@ class Agent:
         self.tools = list(tools)  # Convert to list to ensure it's iterable multiple times
         self.tool_schemas = []
         self.tool_map = {}
+        self.log = logging.getLogger(__name__)
 
         for tool_func in self.tools:
             if not hasattr(tool_func, "_tool_schema"):
@@ -175,15 +177,23 @@ class Agent:
             self.tool_schemas.append(tool_func._tool_schema)
 
     def _call_tool(self, name: str, args: dict):
+        self.log.info(f"Calling tool `{name}` with `{args}`")
+
         user_tool = self.tool_map.get(name, None)
         if user_tool is None:
             return f"Tool `{name}` not found"
 
         try:
             result = user_tool(**args)
-            return str(result) if not isinstance(result, str) else result
+            result_str = str(result) if not isinstance(result, str) else result
+
+            self.log.info(f"Tool `{name}` returned `{result_str}`")
+            return result_str
         except Exception as e:
-            return f"Error executing tool `{name}`: {str(e)}"
+            error_msg = f"Error executing tool `{name}`: `{str(e)}`"
+
+            self.log.info(error_msg)
+            return error_msg
 
     def run(
         self,
