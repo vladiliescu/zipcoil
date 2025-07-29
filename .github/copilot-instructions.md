@@ -1,6 +1,6 @@
 ## About
 
-We're building Smith, a library for simplifying OpenAI tool usage, helping users build simple AI agents using the OpenAI library.
+We're building Zipcoil, a library for simplifying OpenAI tool usage, helping users build simple AI agents using the OpenAI library.
 
 ## Functionality
 

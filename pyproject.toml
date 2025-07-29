@@ -1,7 +1,7 @@
 [project]
-name = "smith"
+name = "zipcoil"
 version = "0.1.0"
-description = "Smith simplifies OpenAI tool usage"
+description = "Zipcoil simplifies OpenAI tool usage"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "LGPL-3.0" }
@@ -22,8 +22,8 @@ dependencies = ["openai>=1.0.0", "docstring-parser>=0.16"]
 dev = ["pytest>=7.0.0", "python-dotenv==1.1.1", "requests", "beautifulsoup4"]
 
 [project.urls]
-Homepage = "https://github.com/vladiliescu/smith"
-Repository = "https://github.com/vladiliescu/smith"
+Homepage = "https://github.com/vladiliescu/zipcoil"
+Repository = "https://github.com/vladiliescu/zipcoil"
 
 [tool.ruff]
 lint.select = ["I"]           #, "E", "W", "F"]
@@ -32,7 +32,7 @@ target-version = "py311"
 src = ["src"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["smith"]
+known-first-party = ["zipcoil"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

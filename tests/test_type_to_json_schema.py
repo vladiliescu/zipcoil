@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Dict, List, Optional
 
-from smith.core import _type_to_json_schema
+from zipcoil.core import _type_to_json_schema
 
 
 class Color(Enum):

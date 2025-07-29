@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 import pytest
 from dotenv import load_dotenv
 
-from smith import tool
+from zipcoil import tool
 
 load_dotenv()
 

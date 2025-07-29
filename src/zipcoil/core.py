@@ -19,7 +19,7 @@ from openai.types.chat import (
     completion_create_params,
 )
 
-from smith.types import ToolProtocol
+from zipcoil.types import ToolProtocol
 
 
 def _enum_type_to_json_schema(type_hint):

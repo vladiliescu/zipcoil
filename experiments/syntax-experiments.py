@@ -9,7 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 from openai import AzureOpenAI
 
-from smith import Agent, tool
+from zipcoil import Agent, tool
 
 client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),

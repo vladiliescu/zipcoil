@@ -1,4 +1,4 @@
-"""Smith - Simplifies OpenAI tool usage."""
+"""Zipcoil - Simplifies OpenAI tool usage."""
 
 from .core import Agent, tool
 
