@@ -224,11 +224,13 @@ Agent(
 )
 ```
 
+The main abstraction of the agentic event loop. It will take in a model name (more on this below), an OpenAI or AzureOpenAI client, and a list of tools decorated with the `@tool` decorator.
+
 Note: As opposed to standard OpenAI usage, Zipcoil associates the model with an agent to avoid having to specify it every time you call `run`.
 
 #### `Agent.run()`
 
-Executes the agent with the given messages and returns a ChatCompletion.
+Runs the agentic loop, calling all tools as needed and iterating until the underlying model doesn't need to call any tools anymore, until it's ready to return a ChatCompletion.
 
 **Parameters:**
 - `max_iterations`: Maximum number of tool calling iterations (default: 10)
