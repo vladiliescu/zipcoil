@@ -3,3 +3,6 @@ CHECKLIST.md
 
 .idea
 __pycache__
+
+dist
+*.egg-info

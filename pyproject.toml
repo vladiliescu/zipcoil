@@ -4,13 +4,12 @@ version = "0.1.0"
 description = "Zipcoil simplifies OpenAI tool usage"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "LGPL-3.0" }
+license = "LGPL-3.0"
 authors = [{ name = "Vlad Iliescu" }]
 keywords = ["openai", "tools", "ai"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -26,7 +25,7 @@ Homepage = "https://github.com/vladiliescu/zipcoil"
 Repository = "https://github.com/vladiliescu/zipcoil"
 
 [tool.ruff]
-lint.select = ["I"]           #, "E", "W", "F"]
+lint.select = ["I"]      #, "E", "W", "F"]
 line-length = 120
 target-version = "py311"
 src = ["src"]
