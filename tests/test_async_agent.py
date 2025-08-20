@@ -4,27 +4,23 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from zipcoil import async_tool
-from zipcoil.async_agent import AsyncAgent
+from zipcoil import AsyncAgent, tool
 
 
 @pytest.mark.asyncio
 async def test_async_agent_with_async_tools():
-    """Test AsyncAgent works with async tools."""
-
-    @async_tool
+    @tool
     async def add_async(a: int, b: int) -> int:
         """Add two numbers asynchronously."""
         await asyncio.sleep(0.001)  # Simulate async work
         return a + b
 
-    @async_tool
+    @tool
     async def multiply_async(x: int, y: int) -> int:
         """Multiply two numbers asynchronously."""
         await asyncio.sleep(0.001)  # Simulate async work
         return x * y
 
-    # Mock client
     mock_client = AsyncMock()
 
     # Second call returns stop
@@ -53,7 +49,6 @@ async def test_async_agent_with_async_tools():
 
     mock_client.chat.completions.create.side_effect = side_effect
 
-    # Create agent
     agent = AsyncAgent(model="gpt-4", client=mock_client, tools=[add_async, multiply_async])
 
     # Test
@@ -70,15 +65,13 @@ async def test_async_agent_with_async_tools():
 
 @pytest.mark.asyncio
 async def test_async_agent_with_mixed_sync_async_tools():
-    """Test AsyncAgent works with mixed sync and async tools."""
-
-    @async_tool
+    @tool
     async def add_async(a: int, b: int) -> int:
         """Add two numbers asynchronously."""
         await asyncio.sleep(0.001)
         return a + b
 
-    @async_tool
+    @tool
     def subtract_sync(a: int, b: int) -> int:
         """Subtract two numbers synchronously."""
         return a - b
@@ -154,9 +147,7 @@ async def test_async_agent_with_mixed_sync_async_tools():
 
 @pytest.mark.asyncio
 async def test_async_agent_tool_error_handling():
-    """Test AsyncAgent handles tool errors properly."""
-
-    @async_tool
+    @tool
     def divide_with_error(a: int, b: int) -> float:
         """Divide with potential error."""
         if b == 0:
@@ -205,13 +196,11 @@ async def test_async_agent_tool_error_handling():
 
 
 def test_async_agent_duplicate_tool_names():
-    """Test AsyncAgent rejects duplicate tool names."""
-
-    @async_tool
+    @tool
     def duplicate_name(x: int) -> int:
         return x
 
-    @async_tool
+    @tool
     def duplicate_name_2(y: int) -> int:
         return y * 2
 
@@ -225,12 +214,10 @@ def test_async_agent_duplicate_tool_names():
 
 
 def test_async_agent_undecorated_tool():
-    """Test AsyncAgent rejects undecorated tools."""
-
     def undecorated_tool(x: int) -> int:
         return x
 
     mock_client = AsyncMock()
 
-    with pytest.raises(ValueError, match=r"not decorated.*@async_tool"):
+    with pytest.raises(ValueError, match=r"not decorated.*@tool"):
         AsyncAgent(model="gpt-4", client=mock_client, tools=[undecorated_tool])

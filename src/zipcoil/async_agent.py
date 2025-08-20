@@ -1,13 +1,10 @@
 import asyncio
 import json
 import logging
-import types
-from enum import Enum
-from typing import Dict, Iterable, List, Literal, Optional, Union, get_args, get_origin, get_type_hints
+from typing import Dict, Iterable, List, Literal, Optional, Union
 
 import httpx
-from docstring_parser import DocstringStyle, ParseError, parse
-from openai import NOT_GIVEN, AsyncOpenAI, NotGiven, OpenAI
+from openai import NOT_GIVEN, AsyncOpenAI, NotGiven
 from openai._types import Body, Headers, Query
 from openai.types import ChatModel, Metadata, ReasoningEffort
 from openai.types.chat import (
@@ -39,7 +36,7 @@ class AsyncAgent:
 
         for tool_func in self.tools:
             if not hasattr(tool_func, "_tool_schema"):
-                raise ValueError(f"Tool {tool_func} is not decorated with @async_tool")
+                raise ValueError(f"Tool {tool_func} is not decorated with @tool")
 
             tool_name = tool_func._tool_schema["function"]["name"]
             if tool_name in self.tool_map:
@@ -142,26 +139,40 @@ class AsyncAgent:
             if completion.choices[0].finish_reason == "stop":
                 return completion
             elif completion.choices[0].finish_reason == "tool_calls":
-                mutable_messages.append(completion.choices[0].message)
+                # Append a plain assistant message dict rather than the raw message object,
+                # to avoid storing AsyncMock or SDK-specific objects in messages.
+                message = completion.choices[0].message
+                assert message.tool_calls is not None  # type guard
 
-                assert completion.choices[0].message.tool_calls is not None  # type guard
-                for tool_call in completion.choices[0].message.tool_calls:
-                    name = tool_call.function.name
+                plain_tool_calls = []
+                for tc in message.tool_calls:
+                    plain_tool_calls.append(
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                        }
+                    )
+
+                mutable_messages.append({"role": "assistant", "tool_calls": plain_tool_calls})
+
+                for tool_call in plain_tool_calls:
+                    name = tool_call["function"]["name"]
 
                     try:
-                        args = json.loads(tool_call.function.arguments)
+                        args = json.loads(tool_call["function"]["arguments"])
                     except json.JSONDecodeError as e:
                         mutable_messages.append(
                             {
                                 "role": "tool",
-                                "tool_call_id": tool_call.id,
+                                "tool_call_id": tool_call["id"],
                                 "content": f"Error decoding arguments for tool `{name}`: {str(e)}",
                             }
                         )
                         continue
 
                     result = await self._call_tool(name, args)
-                    mutable_messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
+                    mutable_messages.append({"role": "tool", "tool_call_id": tool_call["id"], "content": result})
             else:
                 raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
 

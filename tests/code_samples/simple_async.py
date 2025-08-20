@@ -5,7 +5,7 @@ from enum import Enum
 
 from openai import AsyncAzureOpenAI
 
-from zipcoil import Agent, AsyncAgent, async_tool, tool
+from zipcoil import AsyncAgent, tool
 
 logging.basicConfig(
     level=logging.INFO,  # show INFO and above
@@ -23,7 +23,7 @@ client = AsyncAzureOpenAI(
 
 
 # Define tools using the @tool decorator
-@async_tool
+@tool
 async def get_weather(city: str, unit: str = "celsius") -> str:
     """Get the current weather for a city.
 

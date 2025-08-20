@@ -1,26 +1,11 @@
 import asyncio
 import functools
 import inspect
-import json
-import logging
 import types
 from enum import Enum
-from typing import Dict, Iterable, List, Literal, Optional, Union, get_args, get_origin, get_type_hints
+from typing import Union, get_args, get_origin, get_type_hints
 
-import httpx
 from docstring_parser import DocstringStyle, ParseError, parse
-from openai import NOT_GIVEN, NotGiven, OpenAI
-from openai._types import Body, Headers, Query
-from openai.types import ChatModel, Metadata, ReasoningEffort
-from openai.types.chat import (
-    ChatCompletion,
-    ChatCompletionAudioParam,
-    ChatCompletionMessageParam,
-    ChatCompletionPredictionContentParam,
-    completion_create_params,
-)
-
-from zipcoil.types import ToolProtocol
 
 
 def _enum_type_to_json_schema(type_hint):
@@ -94,62 +79,6 @@ def _parse_docstring_args(docstring) -> dict:
 
 
 def tool(func):
-    """
-    Decorator that extracts function metadata and converts it to OpenAI function calling JSON schema format.
-    """
-
-    # Check if the function is async and reject it immediately
-    if asyncio.iscoroutinefunction(func):
-        raise ValueError(
-            f"Async tools are not supported. Function '{func.__name__}' is an async function. "
-            f"Please use a synchronous function instead."
-        )
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
-
-    sig = inspect.signature(func)
-    type_hints = get_type_hints(func)
-
-    docstring = inspect.getdoc(func) or ""
-    description = docstring.split("\n\n")[0].strip() if docstring else ""
-    arg_descriptions = _parse_docstring_args(docstring)
-
-    properties = {}
-    required = []
-
-    for param_name, param in sig.parameters.items():
-        if param_name in type_hints:
-            type_hint = type_hints[param_name]
-            json_type = _type_to_json_schema(type_hint)
-
-            properties[param_name] = json_type
-            properties[param_name]["description"] = arg_descriptions.get(param_name, "")
-            # mark all parameters as required to comply with strict=True
-            required.append(param_name)
-
-    tool_schema = {
-        "type": "function",
-        "function": {
-            "name": func.__name__,
-            "description": description,
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-                "additionalProperties": False,
-            },
-            "strict": True,
-        },
-    }
-
-    wrapper._tool_schema = tool_schema
-
-    return wrapper
-
-
-def async_tool(func):
     """
     Decorator that extracts function metadata and converts it to OpenAI function calling JSON schema format.
     """

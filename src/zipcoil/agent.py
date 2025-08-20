@@ -1,11 +1,9 @@
+import asyncio
 import json
 import logging
-import types
-from enum import Enum
-from typing import Dict, Iterable, List, Literal, Optional, Union, get_args, get_origin, get_type_hints
+from typing import Dict, Iterable, List, Literal, Optional, Union
 
 import httpx
-from docstring_parser import DocstringStyle, ParseError, parse
 from openai import NOT_GIVEN, NotGiven, OpenAI
 from openai._types import Body, Headers, Query
 from openai.types import ChatModel, Metadata, ReasoningEffort
@@ -43,6 +41,11 @@ class Agent:
             tool_name = tool_func._tool_schema["function"]["name"]
             if tool_name in self.tool_map:
                 raise ValueError(f"Duplicate tool name: {tool_name}")
+
+            if asyncio.iscoroutinefunction(tool_func):
+                raise ValueError(
+                    f"Tool `{tool_name}` is an async function, but this agent is synchronous. Please use AsyncAgent instead."
+                )
 
             self.tool_map[tool_name] = tool_func
             self.tool_schemas.append(tool_func._tool_schema)
