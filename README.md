@@ -16,8 +16,8 @@ Zipcoil eliminates this boilerplate by providing:
 - **Built-in agent loop** that handles tool calling iterations
 - **Type safety** with comprehensive type hints including Optional, Union, Enum, and more
 - **Error handling** for malformed tool calls and execution errors
-- A very bearable **lightness of being**, using minimal dependencies, built on top of the official OpenAI library
-- Works with both `OpenAI` and `AzureOpenAI` clients
+- **Minimal dependencies**, built on top of the official OpenAI library
+- Works with both `OpenAI` and `AzureOpenAI` clients, in both `sync` and `async` modes
 
 ## Installation
 
@@ -212,23 +212,25 @@ def get_weather(city: str, unit: str = "celsius") -> str:
     return f"The weather in {city} is 22°{unit[0].upper()}"
 ```
 
-### Sync vs Async tools
-
-- Use `@tool` for both sync and async functions.
-- `Agent` accepts only sync tools and will reject async ones.
-- `AsyncAgent` accepts both sync and async tools and will `await` async tools.
-
-### `Agent` Class
+### `Agent` and `AsyncAgent` Classes
 
 ```python
 Agent(
-    model: str | ChatModel,
+    model: Uniont[str, ChatModel],
     client: OpenAI,
     tools: Iterable[ToolProtocol]
+)
+
+AsyncAgent(
+    model: Union[str, ChatModel],
+    client: AsyncOpenAI,
+    tools: Iterable[Union[ToolProtocol, AsyncToolProtocol]]
 )
 ```
 
 The main abstraction of the agentic event loop. It will take in a model name (more on this below), an OpenAI or AzureOpenAI client, and a list of tools decorated with the `@tool` decorator.
+
+While `Agent` will accept only sync tools and will reject async ones, `AsyncAgent` will accept both sync and async tools and will `await` async tools. Use `@tool` for both sync and async functions.
 
 Note: As opposed to standard OpenAI usage, Zipcoil associates the model with an agent to avoid having to specify it every time you call `run`.
 
