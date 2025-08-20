@@ -252,7 +252,7 @@ Contributions are welcome! Please see our development setup:
 
 ```bash
 # Install development dependencies
-uv sync --extra dev
+uv sync --group dev
 
 # Run tests
 uv run pytest

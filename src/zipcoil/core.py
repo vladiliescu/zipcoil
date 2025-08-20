@@ -149,144 +149,61 @@ def tool(func):
     return wrapper
 
 
-class Agent:
-    """An abstractization of the OpenAI tool-calling loop"""
+def async_tool(func):
+    """
+    Decorator that extracts function metadata and converts it to OpenAI function calling JSON schema format.
+    """
 
-    def __init__(
-        self,
-        model: Union[str, ChatModel],
-        client: OpenAI,
-        tools: Iterable[ToolProtocol],
-    ) -> None:
-        self.model = model
-        self.client = client
-        self.tools = list(tools)  # Convert to list to ensure it's iterable multiple times
-        self.tool_schemas = []
-        self.tool_map = {}
-        self.log = logging.getLogger(__name__)
+    if asyncio.iscoroutinefunction(func):
 
-        for tool_func in self.tools:
-            if not hasattr(tool_func, "_tool_schema"):
-                raise ValueError(f"Tool {tool_func} is not decorated with @tool")
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            return await func(*args, **kwargs)
 
-            tool_name = tool_func._tool_schema["function"]["name"]
-            if tool_name in self.tool_map:
-                raise ValueError(f"Duplicate tool name: {tool_name}")
+        wrapper = async_wrapper
+    else:
 
-            self.tool_map[tool_name] = tool_func
-            self.tool_schemas.append(tool_func._tool_schema)
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
 
-    def _call_tool(self, name: str, args: dict):
-        self.log.info(f"Calling tool `{name}` with `{args}`")
+        wrapper = sync_wrapper
 
-        user_tool = self.tool_map.get(name, None)
-        if user_tool is None:
-            return f"Tool `{name}` not found"
+    sig = inspect.signature(func)
+    type_hints = get_type_hints(func)
 
-        try:
-            result = user_tool(**args)
-            result_str = str(result) if not isinstance(result, str) else result
+    docstring = inspect.getdoc(func) or ""
+    description = docstring.split("\n\n")[0].strip() if docstring else ""
+    arg_descriptions = _parse_docstring_args(docstring)
 
-            self.log.info(f"Tool `{name}` returned `{result_str}`")
-            return result_str
-        except Exception as e:
-            error_msg = f"Error executing tool `{name}`: `{str(e)}`"
+    properties = {}
+    required = []
 
-            self.log.info(error_msg)
-            return error_msg
+    for param_name, param in sig.parameters.items():
+        if param_name in type_hints:
+            type_hint = type_hints[param_name]
+            json_type = _type_to_json_schema(type_hint)
 
-    def run(
-        self,
-        messages: Iterable[ChatCompletionMessageParam],
-        audio: Optional[ChatCompletionAudioParam] | NotGiven = NOT_GIVEN,
-        frequency_penalty: Optional[float] | NotGiven = NOT_GIVEN,
-        logit_bias: Optional[Dict[str, int]] | NotGiven = NOT_GIVEN,
-        logprobs: Optional[bool] | NotGiven = NOT_GIVEN,
-        max_completion_tokens: Optional[int] | NotGiven = NOT_GIVEN,
-        max_tokens: Optional[int] | NotGiven = NOT_GIVEN,
-        metadata: Optional[Metadata] | NotGiven = NOT_GIVEN,
-        modalities: Optional[List[Literal["text", "audio"]]] | NotGiven = NOT_GIVEN,
-        # n: Optional[int] | NotGiven = NOT_GIVEN,
-        # parallel_tool_calls: bool | NotGiven = NOT_GIVEN,
-        prediction: Optional[ChatCompletionPredictionContentParam] | NotGiven = NOT_GIVEN,
-        presence_penalty: Optional[float] | NotGiven = NOT_GIVEN,
-        reasoning_effort: Optional[ReasoningEffort] | NotGiven = NOT_GIVEN,
-        response_format: completion_create_params.ResponseFormat | NotGiven = NOT_GIVEN,
-        seed: Optional[int] | NotGiven = NOT_GIVEN,
-        service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] | NotGiven = NOT_GIVEN,
-        stop: Union[Optional[str], List[str], None] | NotGiven = NOT_GIVEN,
-        store: Optional[bool] | NotGiven = NOT_GIVEN,
-        # stream: Optional[Literal[False]] | Literal[True] | NotGiven = NOT_GIVEN,
-        # stream_options: Optional[ChatCompletionStreamOptionsParam] | NotGiven = NOT_GIVEN,
-        temperature: Optional[float] | NotGiven = NOT_GIVEN,
-        # tool_choice: ChatCompletionToolChoiceOptionParam | NotGiven = NOT_GIVEN,
-        # tools: Iterable[ChatCompletionToolParam] | NotGiven = NOT_GIVEN,
-        top_logprobs: Optional[int] | NotGiven = NOT_GIVEN,
-        top_p: Optional[float] | NotGiven = NOT_GIVEN,
-        user: str | NotGiven = NOT_GIVEN,
-        extra_headers: Headers | None = None,
-        extra_query: Query | None = None,
-        extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
-        max_iterations: int = 10,
-    ) -> ChatCompletion:
-        mutable_messages = list(messages)
-        for iteration in range(max_iterations):
-            completion = self.client.chat.completions.create(
-                model=self.model,
-                messages=mutable_messages,
-                tools=self.tool_schemas,
-                n=1,  # Only one completion at a time otherwise the logic gets messy
-                audio=audio,
-                frequency_penalty=frequency_penalty,
-                logit_bias=logit_bias,
-                logprobs=logprobs,
-                max_completion_tokens=max_completion_tokens,
-                max_tokens=max_tokens,
-                metadata=metadata,
-                modalities=modalities,
-                prediction=prediction,
-                presence_penalty=presence_penalty,
-                reasoning_effort=reasoning_effort,
-                response_format=response_format,
-                seed=seed,
-                service_tier=service_tier,
-                stop=stop,
-                store=store,
-                temperature=temperature,
-                top_logprobs=top_logprobs,
-                top_p=top_p,
-                user=user,
-                extra_headers=extra_headers,
-                extra_query=extra_query,
-                extra_body=extra_body,
-                timeout=timeout,
-            )
+            properties[param_name] = json_type
+            properties[param_name]["description"] = arg_descriptions.get(param_name, "")
+            # mark all parameters as required to comply with strict=True
+            required.append(param_name)
 
-            if completion.choices[0].finish_reason == "stop":
-                return completion
-            elif completion.choices[0].finish_reason == "tool_calls":
-                mutable_messages.append(completion.choices[0].message)
+    tool_schema = {
+        "type": "function",
+        "function": {
+            "name": func.__name__,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    }
 
-                assert completion.choices[0].message.tool_calls is not None  # type guard
-                for tool_call in completion.choices[0].message.tool_calls:
-                    name = tool_call.function.name
+    wrapper._tool_schema = tool_schema
 
-                    try:
-                        args = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError as e:
-                        mutable_messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "content": f"Error decoding arguments for tool `{name}`: {str(e)}",
-                            }
-                        )
-                        continue
-
-                    result = self._call_tool(name, args)
-                    mutable_messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
-            else:
-                raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
-
-        raise RuntimeError(f"Maximum iterations ({max_iterations}) reached without completion")
+    return wrapper

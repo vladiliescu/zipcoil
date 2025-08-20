@@ -18,10 +18,6 @@ classifiers = [
 dependencies = ["openai>=1.0.0", "docstring-parser>=0.16"]
 
 
-[project.optional-dependencies]
-dev = ["pytest>=7.0.0", "python-dotenv==1.1.1", "requests", "beautifulsoup4"]
-build = ["zipcoil[dev]", "build==1.2.2.post1", "twine==6.1.0"]
-
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -44,3 +40,18 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 pythonpath = ["src"]
+
+[dependency-groups]
+# uv-only groups for local development; not published as pip extras
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=1.1.0",
+    "python-dotenv==1.1.1",
+    "requests",
+    "beautifulsoup4",
+    "ruff>=0.5.0",
+]
+build = [
+    "build==1.2.2.post1",
+    "twine==6.1.0",
+]
