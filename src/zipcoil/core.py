@@ -98,7 +98,7 @@ def tool(func: Callable[..., Awaitable[Any]]) -> AsyncToolProtocol: ...
 def tool(func: Callable[..., Any]) -> ToolProtocol: ...
 
 
-def tool(func: Callable[..., Any]) -> ToolProtocol | AsyncToolProtocol:
+def tool(func: Callable[..., Any]) -> Union[ToolProtocol, AsyncToolProtocol]:
     """
     Decorator that extracts function metadata and converts it to OpenAI function calling JSON schema format.
     """
