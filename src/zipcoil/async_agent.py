@@ -30,8 +30,8 @@ class AsyncAgent:
         self.model = model
         self.client: AsyncOpenAI = client
         self.tools = list(tools)  # Convert to list to ensure it's iterable multiple times
-        self.tool_schemas = []
-        self.tool_map = {}
+        self.tool_schemas: list[dict[str, object]] = []
+        self.tool_map: dict[str, ToolProtocol | AsyncToolProtocol] = {}
         self.log = logging.getLogger(__name__)
 
         for tool_func in self.tools:

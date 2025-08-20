@@ -3,9 +3,21 @@ import functools
 import inspect
 import types
 from enum import Enum
-from typing import Union, get_args, get_origin, get_type_hints
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+    overload,
+)
 
 from docstring_parser import DocstringStyle, ParseError, parse
+
+from zipcoil.types import AsyncToolProtocol, ToolProtocol
 
 
 def _enum_type_to_json_schema(type_hint):
@@ -78,7 +90,15 @@ def _parse_docstring_args(docstring) -> dict:
     return {param.arg_name: param.description for param in parsed.params}
 
 
-def tool(func):
+@overload
+def tool(func: Callable[..., Awaitable[Any]]) -> AsyncToolProtocol: ...
+
+
+@overload
+def tool(func: Callable[..., Any]) -> ToolProtocol: ...
+
+
+def tool(func: Callable[..., Any]) -> ToolProtocol | AsyncToolProtocol:
     """
     Decorator that extracts function metadata and converts it to OpenAI function calling JSON schema format.
     """
@@ -105,8 +125,8 @@ def tool(func):
     description = docstring.split("\n\n")[0].strip() if docstring else ""
     arg_descriptions = _parse_docstring_args(docstring)
 
-    properties = {}
-    required = []
+    properties: dict[str, dict[str, Any]] = {}
+    required: list[str] = []
 
     for param_name, param in sig.parameters.items():
         if param_name in type_hints:
@@ -118,7 +138,7 @@ def tool(func):
             # mark all parameters as required to comply with strict=True
             required.append(param_name)
 
-    tool_schema = {
+    tool_schema: dict[str, Any] = {
         "type": "function",
         "function": {
             "name": func.__name__,
@@ -133,6 +153,9 @@ def tool(func):
         },
     }
 
-    wrapper._tool_schema = tool_schema
+    setattr(wrapper, "_tool_schema", tool_schema)
 
-    return wrapper
+    # Help static type checkers by casting based on coroutine-ness
+    if asyncio.iscoroutinefunction(func):
+        return cast(AsyncToolProtocol, wrapper)
+    return cast(ToolProtocol, wrapper)

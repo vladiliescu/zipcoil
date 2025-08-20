@@ -194,12 +194,11 @@ Zipcoil automatically converts Python types to OpenAI's JSON schema:
 
 ### `@tool` Decorator
 
-Converts a Python function into an OpenAI tool. The function must:
+Converts a Python function into an OpenAI tool. The function should:
 - Have type hints for all parameters
 - Have a docstring with Google-style Args section
-- Be synchronous (async functions are not yet supported)
 
-e.g.
+Example:
 
 ```python
 @tool
@@ -210,9 +209,14 @@ def get_weather(city: str, unit: str = "celsius") -> str:
         city: The name of the city
         unit: Temperature unit (celsius or fahrenheit)
     """
-    # Your weather API call here
     return f"The weather in {city} is 22°{unit[0].upper()}"
 ```
+
+### Sync vs Async tools
+
+- Use `@tool` for both sync and async functions.
+- `Agent` accepts only sync tools and will reject async ones.
+- `AsyncAgent` accepts both sync and async tools and will `await` async tools.
 
 ### `Agent` Class
 
