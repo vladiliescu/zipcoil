@@ -1,6 +1,6 @@
 [project]
 name = "zipcoil"
-version = "0.1.0"
+version = "0.2.0"
 description = "Zipcoil simplifies OpenAI tool usage"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,6 +14,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
 ]
 dependencies = ["openai>=1.0.0", "docstring-parser>=0.16"]
 
@@ -21,9 +22,16 @@ dependencies = ["openai>=1.0.0", "docstring-parser>=0.16"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+zipcoil = ["py.typed"]
+
 [project.urls]
 Homepage = "https://github.com/vladiliescu/zipcoil"
 Repository = "https://github.com/vladiliescu/zipcoil"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.ruff]
 lint.select = ["I"]      #, "E", "W", "F"]
