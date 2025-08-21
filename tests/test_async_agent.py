@@ -205,7 +205,7 @@ def test_async_agent_duplicate_tool_names():
         return y * 2
 
     # Manually set the second function to have the same name as the first
-    duplicate_name_2._tool_schema["function"]["name"] = "duplicate_name"
+    duplicate_name_2.tool_schema["function"]["name"] = "duplicate_name"
 
     mock_client = AsyncMock()
 

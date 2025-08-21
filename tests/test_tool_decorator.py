@@ -24,7 +24,7 @@ class TestToolDecorator:
             """
             return f"User: {name}"
 
-        schema = get_user._tool_schema
+        schema = get_user.tool_schema
 
         assert schema["type"] == "function"
         assert schema["function"]["name"] == "get_user"
@@ -57,7 +57,7 @@ class TestToolDecorator:
 
             return 0.0
 
-        schema = calculate._tool_schema
+        schema = calculate.tool_schema
 
         assert schema["function"]["name"] == "calculate"
         assert schema["function"]["description"] == "Perform a calculation on two numbers."
@@ -87,7 +87,7 @@ class TestToolDecorator:
             """
             return ["result1", "result2"]
 
-        schema = search._tool_schema
+        schema = search.tool_schema
 
         params = schema["function"]["parameters"]
         assert params["required"] == ["query", "limit"]
@@ -127,7 +127,7 @@ class TestToolDecorator:
             """
             return "processed"
 
-        schema = process_data._tool_schema
+        schema = process_data.tool_schema
         properties = schema["function"]["parameters"]["properties"]
 
         assert properties["text"]["type"] == "string"
@@ -146,7 +146,7 @@ class TestToolDecorator:
         def simple_func(arg: str) -> str:
             return arg.upper()
 
-        schema = simple_func._tool_schema
+        schema = simple_func.tool_schema
 
         assert schema["function"]["description"] == ""
 
@@ -172,4 +172,4 @@ class TestToolDecorator:
         result = add_numbers(5, 3)
         assert result == 8
 
-        assert hasattr(add_numbers, "_tool_schema")
+        assert hasattr(add_numbers, "tool_schema")
