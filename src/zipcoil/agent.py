@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from json import JSONDecodeError
 from typing import Dict, Generic, Iterable, List, Literal, Optional, TypeVar, Union, cast
 
 import httpx
@@ -11,7 +12,9 @@ from openai.types.chat import (
     ChatCompletion,
     ChatCompletionAudioParam,
     ChatCompletionMessageParam,
+    ChatCompletionMessageToolCall,
     ChatCompletionPredictionContentParam,
+    ChatCompletionToolMessageParam,
     ChatCompletionToolParam,
     completion_create_params,
 )
@@ -68,6 +71,19 @@ class BaseAgent(Generic[ClientT, ToolT]):
         error_msg = f"Error executing tool `{name}`: `{str(e)}`"
         self.log.info(error_msg)
         return error_msg
+
+    # run components
+    def _run_prep_tool_name_and_args(
+        self, tool_call: ChatCompletionMessageToolCall
+    ) -> tuple[str, Union[dict, JSONDecodeError]]:
+        name = tool_call.function.name
+
+        try:
+            args = json.loads(tool_call.function.arguments)
+        except json.JSONDecodeError as e:
+            return name, e
+
+        return name, args
 
 
 class Agent(BaseAgent[OpenAI, ToolProtocol]):
@@ -167,31 +183,31 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
                 timeout=timeout,
             )
 
-            if completion.choices[0].finish_reason == "stop":
+            completion_choice = completion.choices[0]
+            if completion_choice.finish_reason == "stop":
                 return completion
-            elif completion.choices[0].finish_reason == "tool_calls":
-                mutable_messages.append(completion.choices[0].message)
-
-                assert completion.choices[0].message.tool_calls is not None  # type guard
-                for tool_call in completion.choices[0].message.tool_calls:
-                    name = tool_call.function.name
-
-                    try:
-                        args = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError as e:
-                        mutable_messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "content": f"Error decoding arguments for tool `{name}`: {str(e)}",
-                            }
-                        )
-                        continue
-
-                    result = self._call_tool(name, args)
-                    mutable_messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
-            else:
+            elif completion_choice.finish_reason != "tool_calls":
                 raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
+
+            mutable_messages.append(cast(ChatCompletionMessageParam, completion_choice.message))
+            assert completion_choice.message.tool_calls is not None  # type guard
+
+            for tool_call in completion_choice.message.tool_calls:
+                name, args_or_err = self._run_prep_tool_name_and_args(tool_call)
+                if isinstance(args_or_err, JSONDecodeError):
+                    mutable_messages.append(
+                        ChatCompletionToolMessageParam(
+                            role="tool",
+                            tool_call_id=tool_call.id,
+                            content=f"Error decoding arguments for tool `{name}`: {str(args_or_err)}",
+                        )
+                    )
+                    continue
+
+                result = self._call_tool(name, cast(dict, args_or_err))
+                mutable_messages.append(
+                    ChatCompletionToolMessageParam(role="tool", tool_call_id=tool_call.id, content=result)
+                )
 
         raise RuntimeError(f"Maximum iterations ({max_iterations}) reached without completion")
 
@@ -292,43 +308,37 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
                 timeout=timeout,
             )
 
+            completion_choice = completion.choices[0]
+            if completion_choice.finish_reason == "stop":
+                return completion
+            elif completion_choice.finish_reason != "tool_calls":
+                raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
+
+            mutable_messages.append(cast(ChatCompletionMessageParam, completion_choice.message))
+            assert completion_choice.message.tool_calls is not None  # type guard
+
             if completion.choices[0].finish_reason == "stop":
                 return completion
             elif completion.choices[0].finish_reason == "tool_calls":
-                # Append a plain assistant message dict rather than the raw message object,
-                # to avoid storing AsyncMock or SDK-specific objects in messages.
                 message = completion.choices[0].message
                 assert message.tool_calls is not None  # type guard
 
-                plain_tool_calls = []
-                for tc in message.tool_calls:
-                    plain_tool_calls.append(
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                        }
-                    )
-
-                mutable_messages.append({"role": "assistant", "tool_calls": plain_tool_calls})
-
-                for tool_call in plain_tool_calls:
-                    name = tool_call["function"]["name"]
-
-                    try:
-                        args = json.loads(tool_call["function"]["arguments"])
-                    except json.JSONDecodeError as e:
+                for tool_call in completion_choice.message.tool_calls:
+                    name, args_or_err = self._run_prep_tool_name_and_args(tool_call)
+                    if isinstance(args_or_err, JSONDecodeError):
                         mutable_messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call["id"],
-                                "content": f"Error decoding arguments for tool `{name}`: {str(e)}",
-                            }
+                            ChatCompletionToolMessageParam(
+                                role="tool",
+                                tool_call_id=tool_call.id,
+                                content=f"Error decoding arguments for tool `{name}`: {str(args_or_err)}",
+                            )
                         )
                         continue
 
-                    result = await self._call_tool(name, args)
-                    mutable_messages.append({"role": "tool", "tool_call_id": tool_call["id"], "content": result})
+                    result = await self._call_tool(name, cast(dict, args_or_err))
+                    mutable_messages.append(
+                        ChatCompletionToolMessageParam(role="tool", tool_call_id=tool_call.id, content=result)
+                    )
             else:
                 raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
 
