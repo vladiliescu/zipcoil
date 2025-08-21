@@ -16,6 +16,7 @@ from typing import (
 )
 
 from docstring_parser import DocstringStyle, ParseError, parse
+from openai.types.chat import ChatCompletionToolParam
 
 from zipcoil.types import AsyncToolProtocol, ToolProtocol
 
@@ -100,7 +101,7 @@ def tool(func: Callable[..., Any]) -> ToolProtocol: ...
 
 def tool(func: Callable[..., Any]) -> Union[ToolProtocol, AsyncToolProtocol]:
     """
-    Decorator that extracts function metadata and converts it to OpenAI function calling JSON schema format.
+    Decorator that extracts function metadata and converts it to the OpenAI function-calling JSON schema format.
     """
 
     if asyncio.iscoroutinefunction(func):
@@ -138,7 +139,7 @@ def tool(func: Callable[..., Any]) -> Union[ToolProtocol, AsyncToolProtocol]:
             # mark all parameters as required to comply with strict=True
             required.append(param_name)
 
-    tool_schema: dict[str, Any] = {
+    tool_schema: ChatCompletionToolParam = {
         "type": "function",
         "function": {
             "name": func.__name__,
@@ -153,9 +154,9 @@ def tool(func: Callable[..., Any]) -> Union[ToolProtocol, AsyncToolProtocol]:
         },
     }
 
-    setattr(wrapper, "_tool_schema", tool_schema)
+    wrapper.tool_schema = tool_schema  # type: ignore[attr-defined]
 
-    # Help static type checkers by casting based on coroutine-ness
+    # Help static type checkers
     if asyncio.iscoroutinefunction(func):
         return cast(AsyncToolProtocol, wrapper)
     return cast(ToolProtocol, wrapper)

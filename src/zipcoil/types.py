@@ -1,15 +1,17 @@
-from typing import Any, Dict, Protocol, runtime_checkable
+from typing import Any, Awaitable, Protocol, runtime_checkable
+
+from openai.types.chat import ChatCompletionToolParam
 
 
 @runtime_checkable
 class ToolProtocol(Protocol):
-    _tool_schema: Dict[str, Any]
+    tool_schema: ChatCompletionToolParam
 
     def __call__(self, **kwargs: Any) -> Any: ...
 
 
 @runtime_checkable
 class AsyncToolProtocol(Protocol):
-    _tool_schema: Dict[str, Any]
+    tool_schema: ChatCompletionToolParam
 
-    async def __call__(self, **kwargs: Any) -> Any: ...
+    async def __call__(self, **kwargs: Any) -> Awaitable[Any]: ...
