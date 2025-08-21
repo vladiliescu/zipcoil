@@ -1,7 +1,7 @@
 import asyncio
 import json
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from openai.types.chat import ChatCompletionUserMessageParam
@@ -84,12 +84,12 @@ async def test_async_agent_with_mixed_sync_async_tools():
     def side_effect(*args, **kwargs):
         if mock_client.chat.completions.create.call_count == 1:
             # First call - tool calls
-            result = AsyncMock()
-            result.choices = [AsyncMock()]
+            result = Mock()
+            result.choices = [Mock()]
             result.choices[0].finish_reason = "tool_calls"
             result.choices[0].message.tool_calls = [
-                AsyncMock(id="call_1", function=AsyncMock(name="add_async", arguments='{"a": 10, "b": 5}')),
-                AsyncMock(id="call_2", function=AsyncMock(name="subtract_sync", arguments='{"a": 20, "b": 8}')),
+                Mock(id="call_1", function=Mock(name="add_async", arguments='{"a": 10, "b": 5}')),
+                Mock(id="call_2", function=Mock(name="subtract_sync", arguments='{"a": 20, "b": 8}')),
             ]
             result.choices[0].message.tool_calls[0].function.name = "add_async"
             result.choices[0].message.tool_calls[0].function.arguments = '{"a": 10, "b": 5}'
@@ -98,8 +98,8 @@ async def test_async_agent_with_mixed_sync_async_tools():
             return result
         else:
             # Second call - stop
-            result = AsyncMock()
-            result.choices = [AsyncMock()]
+            result = Mock()
+            result.choices = [Mock()]
             result.choices[0].finish_reason = "stop"
             result.choices[0].message.content = "Mixed calculations done"
             return result
@@ -161,18 +161,18 @@ async def test_async_agent_tool_error_handling():
 
     def side_effect(*args, **kwargs):
         if mock_client.chat.completions.create.call_count == 1:
-            result = AsyncMock()
-            result.choices = [AsyncMock()]
+            result = Mock()
+            result.choices = [Mock()]
             result.choices[0].finish_reason = "tool_calls"
             result.choices[0].message.tool_calls = [
-                AsyncMock(id="call_1", function=AsyncMock(name="divide_with_error", arguments='{"a": 10, "b": 0}'))
+                Mock(id="call_1", function=Mock(name="divide_with_error", arguments='{"a": 10, "b": 0}'))
             ]
             result.choices[0].message.tool_calls[0].function.name = "divide_with_error"
             result.choices[0].message.tool_calls[0].function.arguments = '{"a": 10, "b": 0}'
             return result
         else:
-            result = AsyncMock()
-            result.choices = [AsyncMock()]
+            result = Mock()
+            result.choices = [Mock()]
             result.choices[0].finish_reason = "stop"
             result.choices[0].message.content = "Error handled"
             return result
