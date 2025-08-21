@@ -23,7 +23,7 @@ jobs:
         python-version: '3.11'
 
     - name: Set up uv
-      uses: astral-sh/setup-uv@v3
+      uses: astral-sh/setup-uv@v6
 
     - name: Install build dependencies (uv)
       run: uv sync --group build
