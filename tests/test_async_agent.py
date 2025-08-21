@@ -1,8 +1,10 @@
 import asyncio
 import json
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
+from openai.types.chat import ChatCompletionUserMessageParam
 
 from zipcoil import AsyncAgent, tool
 
@@ -52,7 +54,7 @@ async def test_async_agent_with_async_tools():
     agent = AsyncAgent(model="gpt-4", client=mock_client, tools=[add_async, multiply_async])
 
     # Test
-    messages = [{"role": "user", "content": "Do some math"}]
+    messages = [cast(ChatCompletionUserMessageParam, {"role": "user", "content": "Do some math"})]
     result = await agent.run(messages)
 
     # Assertions
@@ -108,7 +110,7 @@ async def test_async_agent_with_mixed_sync_async_tools():
     agent = AsyncAgent(model="gpt-4", client=mock_client, tools=[add_async, subtract_sync])
 
     # Test
-    messages = [{"role": "user", "content": "Do mixed calculations"}]
+    messages = [cast(ChatCompletionUserMessageParam, {"role": "user", "content": "Do mixed calculations"})]
     result = await agent.run(messages)
 
     # Assertions
@@ -181,7 +183,7 @@ async def test_async_agent_tool_error_handling():
     agent = AsyncAgent(model="gpt-4", client=mock_client, tools=[divide_with_error])
 
     # Test
-    messages = [{"role": "user", "content": "Divide by zero"}]
+    messages = [cast(ChatCompletionUserMessageParam, {"role": "user", "content": "Divide by zero"})]
     result = await agent.run(messages)
 
     # Assertions
@@ -220,4 +222,5 @@ def test_async_agent_undecorated_tool():
     mock_client = AsyncMock()
 
     with pytest.raises(ValueError, match=r"not decorated.*@tool"):
-        AsyncAgent(model="gpt-4", client=mock_client, tools=[undecorated_tool])
+        # Tintentionally testing error case with wrong type
+        AsyncAgent(model="gpt-4", client=mock_client, tools=[undecorated_tool])  # type: ignore[list-item]

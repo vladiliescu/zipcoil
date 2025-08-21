@@ -1,7 +1,6 @@
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
-import pytest
 from dotenv import load_dotenv
 
 from zipcoil import tool
@@ -27,16 +26,19 @@ class TestToolDecorator:
         schema = get_user.tool_schema
 
         assert schema["type"] == "function"
-        assert schema["function"]["name"] == "get_user"
-        assert schema["function"]["description"] == "Get user information by name."
+        function_def = schema["function"]
+        assert function_def["name"] == "get_user"
+        assert function_def.get("description") == "Get user information by name."
 
-        params = schema["function"]["parameters"]
-        assert params["type"] == "object"
-        assert params["required"] == ["name"]
-        assert params["additionalProperties"] is False
-        assert schema["function"]["strict"] is True
+        params = function_def.get("parameters")
+        assert params is not None
+        params_dict = cast(Dict[str, Any], params)
+        assert params_dict["type"] == "object"
+        assert params_dict["required"] == ["name"]
+        assert params_dict["additionalProperties"] is False
+        assert function_def.get("strict") is True
 
-        properties = params["properties"]
+        properties = cast(Dict[str, Any], params_dict["properties"])
         assert "name" in properties
         assert len(properties) == 1
         assert properties["name"]["type"] == "string"
@@ -59,14 +61,17 @@ class TestToolDecorator:
 
         schema = calculate.tool_schema
 
-        assert schema["function"]["name"] == "calculate"
-        assert schema["function"]["description"] == "Perform a calculation on two numbers."
+        function_def = schema["function"]
+        assert function_def["name"] == "calculate"
+        assert function_def.get("description") == "Perform a calculation on two numbers."
 
-        params = schema["function"]["parameters"]
+        params = function_def.get("parameters")
+        assert params is not None
+        params_dict = cast(Dict[str, Any], params)
         # operation has a default value, but still needs to be included here b/c strict=True
-        assert set(params["required"]) == {"x", "y", "operation"}
+        assert set(params_dict["required"]) == {"x", "y", "operation"}
 
-        properties = params["properties"]
+        properties = cast(Dict[str, Any], params_dict["properties"])
         assert properties["x"]["type"] == "integer"
         assert properties["x"]["description"] == "First number (integer)"
         assert properties["y"]["type"] == "number"
@@ -89,10 +94,12 @@ class TestToolDecorator:
 
         schema = search.tool_schema
 
-        params = schema["function"]["parameters"]
-        assert params["required"] == ["query", "limit"]
+        params = schema["function"].get("parameters")
+        assert params is not None
+        params_dict = cast(Dict[str, Any], params)
+        assert params_dict["required"] == ["query", "limit"]
 
-        properties = params["properties"]
+        properties = cast(Dict[str, Any], params_dict["properties"])
         assert properties["query"]["type"] == "string"
         assert properties["limit"]["type"] == ["integer", "null"]
 
@@ -128,16 +135,19 @@ class TestToolDecorator:
             return "processed"
 
         schema = process_data.tool_schema
-        properties = schema["function"]["parameters"]["properties"]
+        params = schema["function"].get("parameters")
+        assert params is not None
+        properties = cast(Dict[str, Any], params)["properties"]
+        properties_dict = cast(Dict[str, Any], properties)
 
-        assert properties["text"]["type"] == "string"
-        assert properties["count"]["type"] == "integer"
-        assert properties["score"]["type"] == "number"
-        assert properties["active"]["type"] == "boolean"
-        assert properties["tags"]["type"] == "array"
-        assert properties["metadata"]["type"] == "object"
-        assert properties["status"]["type"] == "integer"
-        assert properties["status"]["enum"] == [0, 1, 2]
+        assert properties_dict["text"]["type"] == "string"
+        assert properties_dict["count"]["type"] == "integer"
+        assert properties_dict["score"]["type"] == "number"
+        assert properties_dict["active"]["type"] == "boolean"
+        assert properties_dict["tags"]["type"] == "array"
+        assert properties_dict["metadata"]["type"] == "object"
+        assert properties_dict["status"]["type"] == "integer"
+        assert properties_dict["status"].get("enum") == [0, 1, 2]
 
     def test_function_without_docstring(self):
         """Test a function without a docstring."""
@@ -148,13 +158,16 @@ class TestToolDecorator:
 
         schema = simple_func.tool_schema
 
-        assert schema["function"]["description"] == ""
+        assert schema["function"].get("description") == ""
 
         # Should still extract parameter info
-        properties = schema["function"]["parameters"]["properties"]
-        assert "arg" in properties
-        assert properties["arg"]["type"] == "string"
-        assert properties["arg"]["description"] == ""
+        params = schema["function"].get("parameters")
+        assert params is not None
+        properties = cast(Dict[str, Any], params)["properties"]
+        properties_dict = cast(Dict[str, Any], properties)
+        assert "arg" in properties_dict
+        assert properties_dict["arg"]["type"] == "string"
+        assert properties_dict["arg"]["description"] == ""
 
     def test_function_preserves_original_functionality(self):
         """Test that the decorated function still works normally."""
@@ -169,7 +182,7 @@ class TestToolDecorator:
             """
             return a + b
 
-        result = add_numbers(5, 3)
+        result = add_numbers(a=5, b=3)
         assert result == 8
 
         assert hasattr(add_numbers, "tool_schema")
