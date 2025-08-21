@@ -1,6 +1,6 @@
 [project]
 name = "zipcoil"
-version = "0.2.0"
+version = "0.2.1"
 description = "Zipcoil simplifies OpenAI tool usage"
 readme = "README.md"
 requires-python = ">=3.11"
