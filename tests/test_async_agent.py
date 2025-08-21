@@ -222,5 +222,5 @@ def test_async_agent_undecorated_tool():
     mock_client = AsyncMock()
 
     with pytest.raises(ValueError, match=r"not decorated.*@tool"):
-        # Tintentionally testing error case with wrong type
+        # Intentionally testing error case with wrong type
         AsyncAgent(model="gpt-4", client=mock_client, tools=[undecorated_tool])  # type: ignore[list-item]
