@@ -49,6 +49,26 @@ class BaseAgent(Generic[ClientT, ToolT]):
             self.tool_map[tool_name] = tool_func
             self.tool_schemas.append(schema)
 
+    # _call_tool components
+    def _prep_tool_call(self, name: str, args: dict) -> Optional[ToolT]:
+        self.log.info(f"Calling tool `{name}` with `{args}`")
+        return self.tool_map.get(name)
+
+    def _tool_not_found(self, name: str) -> str:
+        msg = f"Tool `{name}` not found"
+        self.log.info(msg)
+        return msg
+
+    def _finalize_tool_result(self, name: str, result: object) -> str:
+        result_str = result if isinstance(result, str) else str(result)
+        self.log.info(f"Tool `{name}` returned `{result_str}`")
+        return result_str
+
+    def _finalize_tool_error(self, name: str, e: Exception) -> str:
+        error_msg = f"Error executing tool `{name}`: `{str(e)}`"
+        self.log.info(error_msg)
+        return error_msg
+
 
 class Agent(BaseAgent[OpenAI, ToolProtocol]):
     """An abstractization of the OpenAI tool-calling loop"""
@@ -68,24 +88,16 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
                     f"Tool `{tool_name}` is an async function, but this agent is synchronous. Please use AsyncAgent instead."
                 )
 
-    def _call_tool(self, name: str, args: dict):
-        self.log.info(f"Calling tool `{name}` with `{args}`")
-
-        user_tool = self.tool_map.get(name, None)
+    def _call_tool(self, name: str, args: dict) -> str:
+        user_tool = self._prep_tool_call(name, args)
         if user_tool is None:
-            return f"Tool `{name}` not found"
+            return self._tool_not_found(name)
 
         try:
             result = user_tool(**args)
-            result_str = str(result) if not isinstance(result, str) else result
-
-            self.log.info(f"Tool `{name}` returned `{result_str}`")
-            return result_str
+            return self._finalize_tool_result(name, result)
         except Exception as e:
-            error_msg = f"Error executing tool `{name}`: `{str(e)}`"
-
-            self.log.info(error_msg)
-            return error_msg
+            return self._finalize_tool_error(name, e)
 
     def run(
         self,
@@ -198,28 +210,19 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
     ) -> None:
         super().__init__(model, client, tools)
 
-    async def _call_tool(self, name: str, args: dict):
-        self.log.info(f"Calling tool `{name}` with `{args}`")
-
-        user_tool = self.tool_map.get(name, None)
+    async def _call_tool(self, name: str, args: dict) -> str:
+        user_tool = self._prep_tool_call(name, args)
         if user_tool is None:
-            return f"Tool `{name}` not found"
+            return self._tool_not_found(name)
 
         try:
             if asyncio.iscoroutinefunction(user_tool):
                 result = await user_tool(**args)
             else:
                 result = user_tool(**args)
-
-            result_str = str(result) if not isinstance(result, str) else result
-
-            self.log.info(f"Tool `{name}` returned `{result_str}`")
-            return result_str
+            return self._finalize_tool_result(name, result)
         except Exception as e:
-            error_msg = f"Error executing tool `{name}`: `{str(e)}`"
-
-            self.log.info(error_msg)
-            return error_msg
+            return self._finalize_tool_error(name, e)
 
     async def run(
         self,
