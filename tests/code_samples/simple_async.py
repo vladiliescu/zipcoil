@@ -4,6 +4,7 @@ import os
 from enum import Enum
 
 from openai import AsyncAzureOpenAI
+from openai.types.chat import ChatCompletionUserMessageParam
 
 from zipcoil import AsyncAgent, tool
 
@@ -16,9 +17,9 @@ logging.basicConfig(
 # client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # or the Azure OpenAI client
 client = AsyncAzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_API_BASE"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    api_key=os.getenv("AZURE_OPENAI_API_KEY") or "",
+    azure_endpoint=os.getenv("AZURE_OPENAI_API_BASE") or "",
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION") or "",
 )
 
 
@@ -73,7 +74,9 @@ agent = AsyncAgent(model="gpt-4o", client=client, tools=[get_weather, calculate]
 
 async def main():
     # Run a conversation
-    messages = [{"role": "user", "content": "What's the weather in Paris? Also calculate 15 * 23."}]
+    messages: list[ChatCompletionUserMessageParam] = [
+        {"role": "user", "content": "What's the weather in Paris? Also calculate 15 * 23."}
+    ]
 
     result = await agent.run(messages)
     print(result.choices[0].message.content)

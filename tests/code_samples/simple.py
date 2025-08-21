@@ -2,7 +2,8 @@ import logging
 import os
 from enum import Enum
 
-from openai import AzureOpenAI, OpenAI
+from openai import AzureOpenAI
+from openai.types.chat import ChatCompletionUserMessageParam
 
 from zipcoil import Agent, tool
 
@@ -15,9 +16,9 @@ logging.basicConfig(
 # client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # or the Azure OpenAI client
 client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_API_BASE"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    api_key=os.getenv("AZURE_OPENAI_API_KEY") or "",
+    azure_endpoint=os.getenv("AZURE_OPENAI_API_BASE") or "",
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION") or "",
 )
 
 
@@ -70,7 +71,9 @@ def calculate(x: float, y: float, operation: MathOp) -> float:
 agent = Agent(model="gpt-4o", client=client, tools=[get_weather, calculate])
 
 # Run a conversation
-messages = [{"role": "user", "content": "What's the weather in Paris? Also calculate 15 * 23."}]
+messages: list[ChatCompletionUserMessageParam] = [
+    {"role": "user", "content": "What's the weather in Paris? Also calculate 15 * 23."}
+]
 
 result = agent.run(messages)
 print(result.choices[0].message.content)
