@@ -173,6 +173,27 @@ result = agent.run(
 )
 ```
 
+### Streaming Output
+
+Set `stream=True` to receive token deltas while Zipcoil still handles tool calls and returns a final `ChatCompletion`:
+
+```python
+def on_text_delta(delta: str) -> None:
+    print(delta, end="", flush=True)
+
+
+result = agent.run(
+    messages=messages,
+    stream=True,
+    on_text_delta=on_text_delta,
+)
+```
+
+If you need lower-level stream events, use `on_stream_event`.
+Both agents accept sync callbacks and awaitable callbacks:
+- `AsyncAgent` awaits callback results on the current event loop.
+- `Agent` can run awaitable callbacks when no event loop is already running; if a loop is already running, it raises a runtime error.
+
 
 ## Type Support
 
@@ -240,6 +261,9 @@ Runs the agentic loop, calling all tools as needed and iterating until the under
 
 **Parameters:**
 - `max_iterations`: Maximum number of tool calling iterations (default: 10)
+- `stream`: Stream model output events while the agent loop runs (default: `False`)
+- `on_text_delta`: Callback for streamed text chunks when `stream=True` (sync or awaitable; see streaming notes above)
+- `on_stream_event`: Callback for raw stream events when `stream=True` (sync or awaitable; see streaming notes above)
 - All other parameters are passed through to OpenAI's chat completion API
 - Returns the standard OpenAI [ChatCompletion](https://platform.openai.com/docs/api-reference/chat/object) object
 
