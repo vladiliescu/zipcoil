@@ -272,7 +272,7 @@ Zipcoil handles several types of errors gracefully:
 
 ## Contributing
 
-Contributions are welcome! Please see our development setup:
+Development setup:
 
 ```bash
 # Install development dependencies
@@ -283,6 +283,9 @@ uv run pytest
 
 # Format code
 uv run ruff format src/ tests/
+
+# Run checks
+just check
 ```
 
 ## Requirements
@@ -296,5 +299,3 @@ uv run ruff format src/ tests/
 This project is open-source, licensed under the GNU Lesser General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
-
-**Zipcoil** - Making AI tool usage as simple as decorating a function.
