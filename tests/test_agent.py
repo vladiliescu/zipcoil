@@ -1,15 +1,14 @@
-import asyncio
 from dataclasses import dataclass
 from typing import Any, Iterator, cast
 from unittest.mock import Mock
 
 import pytest
-from openai.types.chat import ChatCompletionUserMessageParam
+from openai.types.chat import ChatCompletionChunk, ChatCompletionUserMessageParam
 
 from zipcoil import Agent, tool
 
 
-def test_agent_rejects_async_tools():
+def test_agent_rejects_async_tools() -> None:
     @tool
     def sync_tool(x: int) -> int:
         return x
@@ -25,9 +24,14 @@ def test_agent_rejects_async_tools():
 
 
 @dataclass
-class _FakeContentDeltaEvent:
+class _FakeChunkEvent:
+    chunk: ChatCompletionChunk
+    type: str = "chunk"
+
+
+@dataclass
+class _FakeNonChunkEvent:
     type: str
-    delta: str
 
 
 @dataclass
@@ -60,7 +64,7 @@ class _FakeCompletion:
 
 
 class _FakeStreamManager:
-    def __init__(self, events: list[_FakeContentDeltaEvent], completion: _FakeCompletion) -> None:
+    def __init__(self, events: list[Any], completion: _FakeCompletion) -> None:
         self._events = events
         self._completion = completion
 
@@ -70,7 +74,7 @@ class _FakeStreamManager:
     def __exit__(self, exc_type: object, exc: object, exc_tb: object) -> None:
         return None
 
-    def __iter__(self) -> Iterator[_FakeContentDeltaEvent]:
+    def __iter__(self) -> Iterator[Any]:
         for event in self._events:
             yield event
 
@@ -79,7 +83,7 @@ class _FakeStreamManager:
 
 
 class _FakeCompletions:
-    def __init__(self, stream_payloads: list[tuple[list[_FakeContentDeltaEvent], _FakeCompletion]]) -> None:
+    def __init__(self, stream_payloads: list[tuple[list[Any], _FakeCompletion]]) -> None:
         self._stream_payloads = stream_payloads
         self.stream_calls: list[dict[str, Any]] = []
 
@@ -96,8 +100,28 @@ class _FakeChat:
 
 
 class _FakeClient:
-    def __init__(self, stream_payloads: list[tuple[list[_FakeContentDeltaEvent], _FakeCompletion]]) -> None:
+    def __init__(self, stream_payloads: list[tuple[list[Any], _FakeCompletion]]) -> None:
         self.chat = _FakeChat(completions=_FakeCompletions(stream_payloads=stream_payloads))
+
+
+def _make_chunk(content: str) -> ChatCompletionChunk:
+    return ChatCompletionChunk(
+        id="chunk_1",
+        object="chat.completion.chunk",
+        created=0,
+        model="gpt-4",
+        choices=cast(
+            Any,
+            [
+                {
+                    "index": 0,
+                    "delta": {"content": content},
+                    "finish_reason": None,
+                    "logprobs": None,
+                }
+            ],
+        ),
+    )
 
 
 def _make_tool_call(tool_call_id: str, name: str, arguments: str) -> _FakeToolCall:
@@ -113,21 +137,24 @@ def _make_completion(
     return _FakeCompletion(choices=[_FakeChoice(finish_reason=finish_reason, message=_FakeMessage(content, tool_calls))])
 
 
-def test_agent_streaming_with_tools() -> None:
+def test_agent_streaming_with_tools_returns_chunks() -> None:
     @tool
     def add(a: int, b: int) -> int:
         return a + b
 
     stream_payloads = [
         (
-            [_FakeContentDeltaEvent(type="content.delta", delta="Calculating")],
+            [
+                _FakeChunkEvent(chunk=_make_chunk("Calculating")),
+                _FakeNonChunkEvent(type="content.delta"),
+            ],
             _make_completion(
                 "tool_calls",
                 tool_calls=[_make_tool_call("call_1", "add", '{"a": 2, "b": 3}')],
             ),
         ),
         (
-            [_FakeContentDeltaEvent(type="content.delta", delta="Done")],
+            [_FakeChunkEvent(chunk=_make_chunk("Done"))],
             _make_completion("stop", content="Final response"),
         ),
     ]
@@ -135,21 +162,13 @@ def test_agent_streaming_with_tools() -> None:
 
     agent = Agent(model="gpt-4", client=cast(Any, fake_client), tools=[add])
 
-    deltas: list[str] = []
-    event_types: list[str] = []
     messages = [cast(ChatCompletionUserMessageParam, {"role": "user", "content": "Please add 2 and 3"})]
+    stream = agent.run(messages=messages, stream=True)
 
-    result = agent.run(
-        messages=messages,
-        stream=True,
-        on_stream_event=lambda event: event_types.append(event.type),
-        on_text_delta=deltas.append,
-    )
+    chunks = list(cast(Iterator[ChatCompletionChunk], stream))
+    content = "".join(chunk.choices[0].delta.content or "" for chunk in chunks)
 
-    assert result.choices[0].finish_reason == "stop"
-    assert result.choices[0].message.content == "Final response"
-    assert "".join(deltas) == "CalculatingDone"
-    assert event_types == ["content.delta", "content.delta"]
+    assert content == "CalculatingDone"
     assert len(fake_client.chat.completions.stream_calls) == 2
 
     second_call_messages = fake_client.chat.completions.stream_calls[1]["messages"]
@@ -158,51 +177,31 @@ def test_agent_streaming_with_tools() -> None:
     assert tool_messages[0]["content"] == "5"
 
 
-def test_agent_streaming_supports_async_callbacks() -> None:
-    stream_payloads = [
-        (
-            [
-                _FakeContentDeltaEvent(type="content.delta", delta="Hello"),
-                _FakeContentDeltaEvent(type="content.delta", delta="!"),
-            ],
-            _make_completion("stop", content="Done"),
-        )
-    ]
-    fake_client = _FakeClient(stream_payloads=stream_payloads)
-    agent = Agent(model="gpt-4", client=cast(Any, fake_client), tools=[])
+def test_agent_non_stream_still_returns_chat_completion() -> None:
+    @tool
+    def add(a: int, b: int) -> int:
+        return a + b
 
-    deltas: list[str] = []
-    event_types: list[str] = []
-    loop_ids: list[int] = []
+    mock_client = Mock()
 
-    async def on_stream_event(event: Any) -> None:
-        await asyncio.sleep(0)
-        event_types.append(event.type)
+    first = Mock()
+    first.choices = [Mock()]
+    first.choices[0].finish_reason = "tool_calls"
+    first.choices[0].message.tool_calls = [Mock(id="call_1", function=Mock(name="add", arguments='{"a": 1, "b": 2}'))]
+    first.choices[0].message.tool_calls[0].function.name = "add"
+    first.choices[0].message.tool_calls[0].function.arguments = '{"a": 1, "b": 2}'
 
-    async def on_text_delta(delta: str) -> None:
-        await asyncio.sleep(0)
-        loop_ids.append(id(asyncio.get_running_loop()))
-        deltas.append(delta)
+    second = Mock()
+    second.choices = [Mock()]
+    second.choices[0].finish_reason = "stop"
+    second.choices[0].message.content = "Done"
 
-    messages = [cast(ChatCompletionUserMessageParam, {"role": "user", "content": "Say hi"})]
-    result = agent.run(
-        messages=messages,
-        stream=True,
-        on_stream_event=on_stream_event,
-        on_text_delta=on_text_delta,
-    )
+    mock_client.chat.completions.create.side_effect = [first, second]
+
+    agent = Agent(model="gpt-4", client=mock_client, tools=[add])
+    messages = [cast(ChatCompletionUserMessageParam, {"role": "user", "content": "Please add 1 and 2"})]
+
+    result = cast(Any, agent.run(messages=messages))
 
     assert result.choices[0].finish_reason == "stop"
     assert result.choices[0].message.content == "Done"
-    assert event_types == ["content.delta", "content.delta"]
-    assert deltas == ["Hello", "!"]
-    assert len(set(loop_ids)) == 1
-
-
-@pytest.mark.asyncio
-async def test_agent_sync_callback_raises_when_event_loop_is_running() -> None:
-    async def _async_callback() -> None:
-        await asyncio.sleep(0)
-
-    with pytest.raises(RuntimeError, match="event loop is already running"):
-        Agent._run_sync_callback(_async_callback(), cast(Any, None))

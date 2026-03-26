@@ -68,18 +68,19 @@ def calculate(x: float, y: float, operation: MathOp) -> float:
 agent = AsyncAgent(model="gpt-4o", client=client, tools=[get_weather, calculate])
 
 
-def on_text_delta(delta: str) -> None:
-    print(delta, end="", flush=True)
-
 
 async def main() -> None:
     messages: list[ChatCompletionUserMessageParam] = [
         {"role": "user", "content": "What's the weather in Paris? Also calculate 15 * 23."}
     ]
 
-    result = await agent.run(messages=messages, stream=True, on_text_delta=on_text_delta)
+    stream = await agent.run(messages=messages, stream=True)
+    async for chunk in stream:
+        text = chunk.choices[0].delta.content
+        if text:
+            print(text, end="", flush=True)
+
     print("\n")
-    print(result.choices[0].message.content)
 
 
 if __name__ == "__main__":

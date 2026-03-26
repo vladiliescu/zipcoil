@@ -16,3 +16,4 @@ We're building Zipcoil, a library for simplifying OpenAI tool usage, helping use
 The application is managed using `uv`, the list of packages is included in `pyproject.toml`. The development libraries can be installed with `uv sync --group dev`.
 
 ## Lessons learned
+- When adding streaming support, keep API compatibility with OpenAI `chat.completions.create`: `stream=False` returns `ChatCompletion`, and `stream=True` returns an iterable/async-iterable of `ChatCompletionChunk` values.

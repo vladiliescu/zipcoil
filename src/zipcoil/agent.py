@@ -1,22 +1,21 @@
 import asyncio
-import inspect
 import json
 import logging
 from json import JSONDecodeError
 from typing import (
     Any,
-    Awaitable,
-    Callable,
+    AsyncIterator,
     Dict,
     Generic,
     Iterable,
+    Iterator,
     List,
     Literal,
     Optional,
-    TypeAlias,
     TypeVar,
     Union,
     cast,
+    overload,
 )
 
 import httpx
@@ -26,6 +25,7 @@ from openai.types import ChatModel, Metadata, ReasoningEffort
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionAudioParam,
+    ChatCompletionChunk,
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCall,
     ChatCompletionPredictionContentParam,
@@ -39,33 +39,7 @@ from zipcoil.types import AsyncToolProtocol, ToolProtocol
 
 ClientT = TypeVar("ClientT", OpenAI, AsyncOpenAI)
 ToolT = TypeVar("ToolT", bound=Union[ToolProtocol, AsyncToolProtocol])
-StreamEvent: TypeAlias = Any
-SyncCallbackResult: TypeAlias = None | Awaitable[None]
-SyncStreamEventCallback: TypeAlias = Callable[[StreamEvent], SyncCallbackResult]
-SyncTextDeltaCallback: TypeAlias = Callable[[str], SyncCallbackResult]
-AsyncCallbackResult: TypeAlias = None | Awaitable[None]
-AsyncStreamEventCallback: TypeAlias = Callable[[StreamEvent], AsyncCallbackResult]
-AsyncTextDeltaCallback: TypeAlias = Callable[[str], AsyncCallbackResult]
-
-
-class _SyncCallbackAwaitableRunner:
-    def __init__(self) -> None:
-        self._loop: asyncio.AbstractEventLoop | None = None
-
-    @staticmethod
-    async def _await_result(result: Awaitable[None]) -> None:
-        await result
-
-    def run(self, result: Awaitable[None]) -> None:
-        if self._loop is None:
-            self._loop = asyncio.new_event_loop()
-
-        self._loop.run_until_complete(self._await_result(result))
-
-    def close(self) -> None:
-        if self._loop is not None:
-            self._loop.close()
-            self._loop = None
+StreamEvent = Any
 
 
 class BaseAgent(Generic[ClientT, ToolT]):
@@ -158,25 +132,6 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         except Exception as e:
             return self._finalize_tool_error(name, e)
 
-    @staticmethod
-    def _run_sync_callback(result: SyncCallbackResult, callback_runner: _SyncCallbackAwaitableRunner) -> None:
-        if not inspect.isawaitable(result):
-            return
-
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            callback_runner.run(cast(Awaitable[None], result))
-            return
-
-        if inspect.iscoroutine(result):
-            result.close()
-
-        raise RuntimeError(
-            "Async stream callback returned an awaitable while an event loop is already running. "
-            "Use AsyncAgent or provide a synchronous callback."
-        )
-
     def _create_completion(
         self,
         mutable_messages: list[ChatCompletionMessageParam],
@@ -196,7 +151,6 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] | NotGiven,
         stop: Union[Optional[str], List[str], None] | NotGiven,
         store: Optional[bool] | NotGiven,
-        stream: bool,
         stream_options: Optional[ChatCompletionStreamOptionsParam] | NotGiven,
         temperature: Optional[float] | NotGiven,
         top_logprobs: Optional[int] | NotGiven,
@@ -206,14 +160,105 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         extra_query: Query | None,
         extra_body: Body | None,
         timeout: float | httpx.Timeout | None | NotGiven,
-        on_stream_event: SyncStreamEventCallback | None,
-        on_text_delta: SyncTextDeltaCallback | None,
-        callback_runner: _SyncCallbackAwaitableRunner,
     ) -> ChatCompletion:
-        if stream:
-            if not hasattr(self.client.chat.completions, "stream"):
-                raise RuntimeError("Streaming requires an OpenAI client that supports `chat.completions.stream()`.")
+        return self.client.chat.completions.create(
+            model=self.model,
+            messages=mutable_messages,
+            tools=self.tool_schemas,
+            n=1,  # Only one completion at a time otherwise the logic gets messy
+            audio=audio,
+            frequency_penalty=frequency_penalty,
+            logit_bias=logit_bias,
+            logprobs=logprobs,
+            max_completion_tokens=max_completion_tokens,
+            max_tokens=max_tokens,
+            metadata=metadata,
+            modalities=modalities,
+            prediction=prediction,
+            presence_penalty=presence_penalty,
+            reasoning_effort=reasoning_effort,
+            response_format=response_format,
+            seed=seed,
+            service_tier=service_tier,
+            stop=stop,
+            store=store,
+            stream_options=stream_options,
+            temperature=temperature,
+            top_logprobs=top_logprobs,
+            top_p=top_p,
+            user=user,
+            extra_headers=extra_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
+        )
 
+    def _append_tool_results(
+        self, completion: ChatCompletion, mutable_messages: list[ChatCompletionMessageParam]
+    ) -> bool:
+        completion_choice = completion.choices[0]
+        if completion_choice.finish_reason == "stop":
+            return True
+
+        if completion_choice.finish_reason != "tool_calls":
+            raise ValueError(f"Unexpected finish reason: {completion_choice.finish_reason}")
+
+        mutable_messages.append(cast(ChatCompletionMessageParam, completion_choice.message))
+        assert completion_choice.message.tool_calls is not None  # type guard
+
+        for tool_call in completion_choice.message.tool_calls:
+            name, args_or_err = self._run_prep_tool_name_and_args(tool_call)
+            if isinstance(args_or_err, JSONDecodeError):
+                mutable_messages.append(
+                    ChatCompletionToolMessageParam(
+                        role="tool",
+                        tool_call_id=tool_call.id,
+                        content=f"Error decoding arguments for tool `{name}`: {str(args_or_err)}",
+                    )
+                )
+                continue
+
+            result = self._call_tool(name, cast(dict, args_or_err))
+            mutable_messages.append(
+                ChatCompletionToolMessageParam(role="tool", tool_call_id=tool_call.id, content=result)
+            )
+
+        return False
+
+    def _stream_run(
+        self,
+        mutable_messages: list[ChatCompletionMessageParam],
+        audio: Optional[ChatCompletionAudioParam] | NotGiven,
+        frequency_penalty: Optional[float] | NotGiven,
+        logit_bias: Optional[Dict[str, int]] | NotGiven,
+        logprobs: Optional[bool] | NotGiven,
+        max_completion_tokens: Optional[int] | NotGiven,
+        max_tokens: Optional[int] | NotGiven,
+        metadata: Optional[Metadata] | NotGiven,
+        modalities: Optional[List[Literal["text", "audio"]]] | NotGiven,
+        prediction: Optional[ChatCompletionPredictionContentParam] | NotGiven,
+        presence_penalty: Optional[float] | NotGiven,
+        reasoning_effort: Optional[ReasoningEffort] | NotGiven,
+        response_format: completion_create_params.ResponseFormat | NotGiven,
+        seed: Optional[int] | NotGiven,
+        service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] | NotGiven,
+        stop: Union[Optional[str], List[str], None] | NotGiven,
+        store: Optional[bool] | NotGiven,
+        stream_options: Optional[ChatCompletionStreamOptionsParam] | NotGiven,
+        temperature: Optional[float] | NotGiven,
+        top_logprobs: Optional[int] | NotGiven,
+        top_p: Optional[float] | NotGiven,
+        user: str | NotGiven,
+        extra_headers: Headers | None,
+        extra_query: Query | None,
+        extra_body: Body | None,
+        timeout: float | httpx.Timeout | None | NotGiven,
+        max_iterations: int,
+    ) -> Iterator[ChatCompletionChunk]:
+        if not hasattr(self.client.chat.completions, "stream"):
+            raise RuntimeError("Streaming requires an OpenAI client that supports `chat.completions.stream()`.")
+
+        for _ in range(max_iterations):
             with self.client.chat.completions.stream(
                 model=self.model,
                 messages=mutable_messages,
@@ -247,44 +292,84 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
             ) as completion_stream:
                 for event in completion_stream:
                     stream_event = cast(StreamEvent, event)
-                    if on_stream_event is not None:
-                        self._run_sync_callback(on_stream_event(stream_event), callback_runner)
-                    if on_text_delta is not None and stream_event.type == "content.delta":
-                        self._run_sync_callback(on_text_delta(stream_event.delta), callback_runner)
+                    if stream_event.type == "chunk":
+                        yield cast(ChatCompletionChunk, stream_event.chunk)
+                completion = cast(ChatCompletion, completion_stream.get_final_completion())
 
-                return cast(ChatCompletion, completion_stream.get_final_completion())
+            if self._append_tool_results(completion, mutable_messages):
+                return
 
-        return self.client.chat.completions.create(
-            model=self.model,
-            messages=mutable_messages,
-            tools=self.tool_schemas,
-            n=1,  # Only one completion at a time otherwise the logic gets messy
-            audio=audio,
-            frequency_penalty=frequency_penalty,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
-            max_completion_tokens=max_completion_tokens,
-            max_tokens=max_tokens,
-            metadata=metadata,
-            modalities=modalities,
-            prediction=prediction,
-            presence_penalty=presence_penalty,
-            reasoning_effort=reasoning_effort,
-            response_format=response_format,
-            seed=seed,
-            service_tier=service_tier,
-            stop=stop,
-            store=store,
-            stream_options=stream_options,
-            temperature=temperature,
-            top_logprobs=top_logprobs,
-            top_p=top_p,
-            user=user,
-            extra_headers=extra_headers,
-            extra_query=extra_query,
-            extra_body=extra_body,
-            timeout=timeout,
-        )
+        raise RuntimeError(f"Maximum iterations ({max_iterations}) reached without completion")
+
+    @overload
+    def run(
+        self,
+        messages: Iterable[ChatCompletionMessageParam],
+        *,
+        audio: Optional[ChatCompletionAudioParam] | NotGiven = NOT_GIVEN,
+        frequency_penalty: Optional[float] | NotGiven = NOT_GIVEN,
+        logit_bias: Optional[Dict[str, int]] | NotGiven = NOT_GIVEN,
+        logprobs: Optional[bool] | NotGiven = NOT_GIVEN,
+        max_completion_tokens: Optional[int] | NotGiven = NOT_GIVEN,
+        max_tokens: Optional[int] | NotGiven = NOT_GIVEN,
+        metadata: Optional[Metadata] | NotGiven = NOT_GIVEN,
+        modalities: Optional[List[Literal["text", "audio"]]] | NotGiven = NOT_GIVEN,
+        prediction: Optional[ChatCompletionPredictionContentParam] | NotGiven = NOT_GIVEN,
+        presence_penalty: Optional[float] | NotGiven = NOT_GIVEN,
+        reasoning_effort: Optional[ReasoningEffort] | NotGiven = NOT_GIVEN,
+        response_format: completion_create_params.ResponseFormat | NotGiven = NOT_GIVEN,
+        seed: Optional[int] | NotGiven = NOT_GIVEN,
+        service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] | NotGiven = NOT_GIVEN,
+        stop: Union[Optional[str], List[str], None] | NotGiven = NOT_GIVEN,
+        store: Optional[bool] | NotGiven = NOT_GIVEN,
+        stream: Literal[True],
+        stream_options: Optional[ChatCompletionStreamOptionsParam] | NotGiven = NOT_GIVEN,
+        temperature: Optional[float] | NotGiven = NOT_GIVEN,
+        top_logprobs: Optional[int] | NotGiven = NOT_GIVEN,
+        top_p: Optional[float] | NotGiven = NOT_GIVEN,
+        user: str | NotGiven = NOT_GIVEN,
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        max_iterations: int = 10,
+    ) -> Iterator[ChatCompletionChunk]:
+        ...
+
+    @overload
+    def run(
+        self,
+        messages: Iterable[ChatCompletionMessageParam],
+        *,
+        audio: Optional[ChatCompletionAudioParam] | NotGiven = NOT_GIVEN,
+        frequency_penalty: Optional[float] | NotGiven = NOT_GIVEN,
+        logit_bias: Optional[Dict[str, int]] | NotGiven = NOT_GIVEN,
+        logprobs: Optional[bool] | NotGiven = NOT_GIVEN,
+        max_completion_tokens: Optional[int] | NotGiven = NOT_GIVEN,
+        max_tokens: Optional[int] | NotGiven = NOT_GIVEN,
+        metadata: Optional[Metadata] | NotGiven = NOT_GIVEN,
+        modalities: Optional[List[Literal["text", "audio"]]] | NotGiven = NOT_GIVEN,
+        prediction: Optional[ChatCompletionPredictionContentParam] | NotGiven = NOT_GIVEN,
+        presence_penalty: Optional[float] | NotGiven = NOT_GIVEN,
+        reasoning_effort: Optional[ReasoningEffort] | NotGiven = NOT_GIVEN,
+        response_format: completion_create_params.ResponseFormat | NotGiven = NOT_GIVEN,
+        seed: Optional[int] | NotGiven = NOT_GIVEN,
+        service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] | NotGiven = NOT_GIVEN,
+        stop: Union[Optional[str], List[str], None] | NotGiven = NOT_GIVEN,
+        store: Optional[bool] | NotGiven = NOT_GIVEN,
+        stream: Literal[False] = False,
+        stream_options: Optional[ChatCompletionStreamOptionsParam] | NotGiven = NOT_GIVEN,
+        temperature: Optional[float] | NotGiven = NOT_GIVEN,
+        top_logprobs: Optional[int] | NotGiven = NOT_GIVEN,
+        top_p: Optional[float] | NotGiven = NOT_GIVEN,
+        user: str | NotGiven = NOT_GIVEN,
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        max_iterations: int = 10,
+    ) -> ChatCompletion:
+        ...
 
     def run(
         self,
@@ -320,73 +405,71 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         extra_body: Body | None = None,
         timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
-        on_stream_event: SyncStreamEventCallback | None = None,
-        on_text_delta: SyncTextDeltaCallback | None = None,
-    ) -> ChatCompletion:
+    ) -> ChatCompletion | Iterator[ChatCompletionChunk]:
         mutable_messages = list(messages)
-        callback_runner = _SyncCallbackAwaitableRunner()
-        try:
-            for _ in range(max_iterations):
-                completion = self._create_completion(
-                    mutable_messages=mutable_messages,
-                    audio=audio,
-                    frequency_penalty=frequency_penalty,
-                    logit_bias=logit_bias,
-                    logprobs=logprobs,
-                    max_completion_tokens=max_completion_tokens,
-                    max_tokens=max_tokens,
-                    metadata=metadata,
-                    modalities=modalities,
-                    prediction=prediction,
-                    presence_penalty=presence_penalty,
-                    reasoning_effort=reasoning_effort,
-                    response_format=response_format,
-                    seed=seed,
-                    service_tier=service_tier,
-                    stop=stop,
-                    store=store,
-                    stream=stream,
-                    stream_options=stream_options,
-                    temperature=temperature,
-                    top_logprobs=top_logprobs,
-                    top_p=top_p,
-                    user=user,
-                    extra_headers=extra_headers,
-                    extra_query=extra_query,
-                    extra_body=extra_body,
-                    timeout=timeout,
-                    on_stream_event=on_stream_event,
-                    on_text_delta=on_text_delta,
-                    callback_runner=callback_runner,
-                )
+        if stream:
+            return self._stream_run(
+                mutable_messages=mutable_messages,
+                audio=audio,
+                frequency_penalty=frequency_penalty,
+                logit_bias=logit_bias,
+                logprobs=logprobs,
+                max_completion_tokens=max_completion_tokens,
+                max_tokens=max_tokens,
+                metadata=metadata,
+                modalities=modalities,
+                prediction=prediction,
+                presence_penalty=presence_penalty,
+                reasoning_effort=reasoning_effort,
+                response_format=response_format,
+                seed=seed,
+                service_tier=service_tier,
+                stop=stop,
+                store=store,
+                stream_options=stream_options,
+                temperature=temperature,
+                top_logprobs=top_logprobs,
+                top_p=top_p,
+                user=user,
+                extra_headers=extra_headers,
+                extra_query=extra_query,
+                extra_body=extra_body,
+                timeout=timeout,
+                max_iterations=max_iterations,
+            )
 
-                completion_choice = completion.choices[0]
-                if completion_choice.finish_reason == "stop":
-                    return completion
-                elif completion_choice.finish_reason != "tool_calls":
-                    raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
+        for _ in range(max_iterations):
+            completion = self._create_completion(
+                mutable_messages=mutable_messages,
+                audio=audio,
+                frequency_penalty=frequency_penalty,
+                logit_bias=logit_bias,
+                logprobs=logprobs,
+                max_completion_tokens=max_completion_tokens,
+                max_tokens=max_tokens,
+                metadata=metadata,
+                modalities=modalities,
+                prediction=prediction,
+                presence_penalty=presence_penalty,
+                reasoning_effort=reasoning_effort,
+                response_format=response_format,
+                seed=seed,
+                service_tier=service_tier,
+                stop=stop,
+                store=store,
+                stream_options=stream_options,
+                temperature=temperature,
+                top_logprobs=top_logprobs,
+                top_p=top_p,
+                user=user,
+                extra_headers=extra_headers,
+                extra_query=extra_query,
+                extra_body=extra_body,
+                timeout=timeout,
+            )
 
-                mutable_messages.append(cast(ChatCompletionMessageParam, completion_choice.message))
-                assert completion_choice.message.tool_calls is not None  # type guard
-
-                for tool_call in completion_choice.message.tool_calls:
-                    name, args_or_err = self._run_prep_tool_name_and_args(tool_call)
-                    if isinstance(args_or_err, JSONDecodeError):
-                        mutable_messages.append(
-                            ChatCompletionToolMessageParam(
-                                role="tool",
-                                tool_call_id=tool_call.id,
-                                content=f"Error decoding arguments for tool `{name}`: {str(args_or_err)}",
-                            )
-                        )
-                        continue
-
-                    result = self._call_tool(name, cast(dict, args_or_err))
-                    mutable_messages.append(
-                        ChatCompletionToolMessageParam(role="tool", tool_call_id=tool_call.id, content=result)
-                    )
-        finally:
-            callback_runner.close()
+            if self._append_tool_results(completion, mutable_messages):
+                return completion
 
         raise RuntimeError(f"Maximum iterations ({max_iterations}) reached without completion")
 
@@ -419,11 +502,6 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         except Exception as e:
             return self._finalize_tool_error(name, e)
 
-    @staticmethod
-    async def _run_async_callback(result: AsyncCallbackResult) -> None:
-        if inspect.isawaitable(result):
-            await cast(Awaitable[None], result)
-
     async def _create_completion(
         self,
         mutable_messages: list[ChatCompletionMessageParam],
@@ -443,7 +521,6 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] | NotGiven,
         stop: Union[Optional[str], List[str], None] | NotGiven,
         store: Optional[bool] | NotGiven,
-        stream: bool,
         stream_options: Optional[ChatCompletionStreamOptionsParam] | NotGiven,
         temperature: Optional[float] | NotGiven,
         top_logprobs: Optional[int] | NotGiven,
@@ -453,13 +530,105 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         extra_query: Query | None,
         extra_body: Body | None,
         timeout: float | httpx.Timeout | None | NotGiven,
-        on_stream_event: AsyncStreamEventCallback | None,
-        on_text_delta: AsyncTextDeltaCallback | None,
     ) -> ChatCompletion:
-        if stream:
-            if not hasattr(self.client.chat.completions, "stream"):
-                raise RuntimeError("Streaming requires an OpenAI client that supports `chat.completions.stream()`.")
+        return await self.client.chat.completions.create(
+            model=self.model,
+            messages=mutable_messages,
+            tools=self.tool_schemas,
+            n=1,  # Only one completion at a time otherwise the logic gets messy
+            audio=audio,
+            frequency_penalty=frequency_penalty,
+            logit_bias=logit_bias,
+            logprobs=logprobs,
+            max_completion_tokens=max_completion_tokens,
+            max_tokens=max_tokens,
+            metadata=metadata,
+            modalities=modalities,
+            prediction=prediction,
+            presence_penalty=presence_penalty,
+            reasoning_effort=reasoning_effort,
+            response_format=response_format,
+            seed=seed,
+            service_tier=service_tier,
+            stop=stop,
+            store=store,
+            stream_options=stream_options,
+            temperature=temperature,
+            top_logprobs=top_logprobs,
+            top_p=top_p,
+            user=user,
+            extra_headers=extra_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
+        )
 
+    async def _append_tool_results(
+        self, completion: ChatCompletion, mutable_messages: list[ChatCompletionMessageParam]
+    ) -> bool:
+        completion_choice = completion.choices[0]
+        if completion_choice.finish_reason == "stop":
+            return True
+
+        if completion_choice.finish_reason != "tool_calls":
+            raise ValueError(f"Unexpected finish reason: {completion_choice.finish_reason}")
+
+        mutable_messages.append(cast(ChatCompletionMessageParam, completion_choice.message))
+        assert completion_choice.message.tool_calls is not None  # type guard
+
+        for tool_call in completion_choice.message.tool_calls:
+            name, args_or_err = self._run_prep_tool_name_and_args(tool_call)
+            if isinstance(args_or_err, JSONDecodeError):
+                mutable_messages.append(
+                    ChatCompletionToolMessageParam(
+                        role="tool",
+                        tool_call_id=tool_call.id,
+                        content=f"Error decoding arguments for tool `{name}`: {str(args_or_err)}",
+                    )
+                )
+                continue
+
+            result = await self._call_tool(name, cast(dict, args_or_err))
+            mutable_messages.append(
+                ChatCompletionToolMessageParam(role="tool", tool_call_id=tool_call.id, content=result)
+            )
+
+        return False
+
+    async def _stream_run(
+        self,
+        mutable_messages: list[ChatCompletionMessageParam],
+        audio: Optional[ChatCompletionAudioParam] | NotGiven,
+        frequency_penalty: Optional[float] | NotGiven,
+        logit_bias: Optional[Dict[str, int]] | NotGiven,
+        logprobs: Optional[bool] | NotGiven,
+        max_completion_tokens: Optional[int] | NotGiven,
+        max_tokens: Optional[int] | NotGiven,
+        metadata: Optional[Metadata] | NotGiven,
+        modalities: Optional[List[Literal["text", "audio"]]] | NotGiven,
+        prediction: Optional[ChatCompletionPredictionContentParam] | NotGiven,
+        presence_penalty: Optional[float] | NotGiven,
+        reasoning_effort: Optional[ReasoningEffort] | NotGiven,
+        response_format: completion_create_params.ResponseFormat | NotGiven,
+        seed: Optional[int] | NotGiven,
+        service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] | NotGiven,
+        stop: Union[Optional[str], List[str], None] | NotGiven,
+        store: Optional[bool] | NotGiven,
+        stream_options: Optional[ChatCompletionStreamOptionsParam] | NotGiven,
+        temperature: Optional[float] | NotGiven,
+        top_logprobs: Optional[int] | NotGiven,
+        top_p: Optional[float] | NotGiven,
+        user: str | NotGiven,
+        extra_headers: Headers | None,
+        extra_query: Query | None,
+        extra_body: Body | None,
+        timeout: float | httpx.Timeout | None | NotGiven,
+        max_iterations: int,
+    ) -> AsyncIterator[ChatCompletionChunk]:
+        if not hasattr(self.client.chat.completions, "stream"):
+            raise RuntimeError("Streaming requires an OpenAI client that supports `chat.completions.stream()`.")
+
+        for _ in range(max_iterations):
             async with self.client.chat.completions.stream(
                 model=self.model,
                 messages=mutable_messages,
@@ -493,44 +662,84 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
             ) as completion_stream:
                 async for event in completion_stream:
                     stream_event = cast(StreamEvent, event)
-                    if on_stream_event is not None:
-                        await self._run_async_callback(on_stream_event(stream_event))
-                    if on_text_delta is not None and stream_event.type == "content.delta":
-                        await self._run_async_callback(on_text_delta(stream_event.delta))
+                    if stream_event.type == "chunk":
+                        yield cast(ChatCompletionChunk, stream_event.chunk)
+                completion = cast(ChatCompletion, await completion_stream.get_final_completion())
 
-                return cast(ChatCompletion, await completion_stream.get_final_completion())
+            if await self._append_tool_results(completion, mutable_messages):
+                return
 
-        return await self.client.chat.completions.create(
-            model=self.model,
-            messages=mutable_messages,
-            tools=self.tool_schemas,
-            n=1,  # Only one completion at a time otherwise the logic gets messy
-            audio=audio,
-            frequency_penalty=frequency_penalty,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
-            max_completion_tokens=max_completion_tokens,
-            max_tokens=max_tokens,
-            metadata=metadata,
-            modalities=modalities,
-            prediction=prediction,
-            presence_penalty=presence_penalty,
-            reasoning_effort=reasoning_effort,
-            response_format=response_format,
-            seed=seed,
-            service_tier=service_tier,
-            stop=stop,
-            store=store,
-            stream_options=stream_options,
-            temperature=temperature,
-            top_logprobs=top_logprobs,
-            top_p=top_p,
-            user=user,
-            extra_headers=extra_headers,
-            extra_query=extra_query,
-            extra_body=extra_body,
-            timeout=timeout,
-        )
+        raise RuntimeError(f"Maximum iterations ({max_iterations}) reached without completion")
+
+    @overload
+    async def run(
+        self,
+        messages: Iterable[ChatCompletionMessageParam],
+        *,
+        audio: Optional[ChatCompletionAudioParam] | NotGiven = NOT_GIVEN,
+        frequency_penalty: Optional[float] | NotGiven = NOT_GIVEN,
+        logit_bias: Optional[Dict[str, int]] | NotGiven = NOT_GIVEN,
+        logprobs: Optional[bool] | NotGiven = NOT_GIVEN,
+        max_completion_tokens: Optional[int] | NotGiven = NOT_GIVEN,
+        max_tokens: Optional[int] | NotGiven = NOT_GIVEN,
+        metadata: Optional[Metadata] | NotGiven = NOT_GIVEN,
+        modalities: Optional[List[Literal["text", "audio"]]] | NotGiven = NOT_GIVEN,
+        prediction: Optional[ChatCompletionPredictionContentParam] | NotGiven = NOT_GIVEN,
+        presence_penalty: Optional[float] | NotGiven = NOT_GIVEN,
+        reasoning_effort: Optional[ReasoningEffort] | NotGiven = NOT_GIVEN,
+        response_format: completion_create_params.ResponseFormat | NotGiven = NOT_GIVEN,
+        seed: Optional[int] | NotGiven = NOT_GIVEN,
+        service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] | NotGiven = NOT_GIVEN,
+        stop: Union[Optional[str], List[str], None] | NotGiven = NOT_GIVEN,
+        store: Optional[bool] | NotGiven = NOT_GIVEN,
+        stream: Literal[True],
+        stream_options: Optional[ChatCompletionStreamOptionsParam] | NotGiven = NOT_GIVEN,
+        temperature: Optional[float] | NotGiven = NOT_GIVEN,
+        top_logprobs: Optional[int] | NotGiven = NOT_GIVEN,
+        top_p: Optional[float] | NotGiven = NOT_GIVEN,
+        user: str | NotGiven = NOT_GIVEN,
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        max_iterations: int = 10,
+    ) -> AsyncIterator[ChatCompletionChunk]:
+        ...
+
+    @overload
+    async def run(
+        self,
+        messages: Iterable[ChatCompletionMessageParam],
+        *,
+        audio: Optional[ChatCompletionAudioParam] | NotGiven = NOT_GIVEN,
+        frequency_penalty: Optional[float] | NotGiven = NOT_GIVEN,
+        logit_bias: Optional[Dict[str, int]] | NotGiven = NOT_GIVEN,
+        logprobs: Optional[bool] | NotGiven = NOT_GIVEN,
+        max_completion_tokens: Optional[int] | NotGiven = NOT_GIVEN,
+        max_tokens: Optional[int] | NotGiven = NOT_GIVEN,
+        metadata: Optional[Metadata] | NotGiven = NOT_GIVEN,
+        modalities: Optional[List[Literal["text", "audio"]]] | NotGiven = NOT_GIVEN,
+        prediction: Optional[ChatCompletionPredictionContentParam] | NotGiven = NOT_GIVEN,
+        presence_penalty: Optional[float] | NotGiven = NOT_GIVEN,
+        reasoning_effort: Optional[ReasoningEffort] | NotGiven = NOT_GIVEN,
+        response_format: completion_create_params.ResponseFormat | NotGiven = NOT_GIVEN,
+        seed: Optional[int] | NotGiven = NOT_GIVEN,
+        service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] | NotGiven = NOT_GIVEN,
+        stop: Union[Optional[str], List[str], None] | NotGiven = NOT_GIVEN,
+        store: Optional[bool] | NotGiven = NOT_GIVEN,
+        stream: Literal[False] = False,
+        stream_options: Optional[ChatCompletionStreamOptionsParam] | NotGiven = NOT_GIVEN,
+        temperature: Optional[float] | NotGiven = NOT_GIVEN,
+        top_logprobs: Optional[int] | NotGiven = NOT_GIVEN,
+        top_p: Optional[float] | NotGiven = NOT_GIVEN,
+        user: str | NotGiven = NOT_GIVEN,
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        max_iterations: int = 10,
+    ) -> ChatCompletion:
+        ...
 
     async def run(
         self,
@@ -566,10 +775,39 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         extra_body: Body | None = None,
         timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
-        on_stream_event: AsyncStreamEventCallback | None = None,
-        on_text_delta: AsyncTextDeltaCallback | None = None,
-    ) -> ChatCompletion:
+    ) -> ChatCompletion | AsyncIterator[ChatCompletionChunk]:
         mutable_messages = list(messages)
+        if stream:
+            return self._stream_run(
+                mutable_messages=mutable_messages,
+                audio=audio,
+                frequency_penalty=frequency_penalty,
+                logit_bias=logit_bias,
+                logprobs=logprobs,
+                max_completion_tokens=max_completion_tokens,
+                max_tokens=max_tokens,
+                metadata=metadata,
+                modalities=modalities,
+                prediction=prediction,
+                presence_penalty=presence_penalty,
+                reasoning_effort=reasoning_effort,
+                response_format=response_format,
+                seed=seed,
+                service_tier=service_tier,
+                stop=stop,
+                store=store,
+                stream_options=stream_options,
+                temperature=temperature,
+                top_logprobs=top_logprobs,
+                top_p=top_p,
+                user=user,
+                extra_headers=extra_headers,
+                extra_query=extra_query,
+                extra_body=extra_body,
+                timeout=timeout,
+                max_iterations=max_iterations,
+            )
+
         for _ in range(max_iterations):
             completion = await self._create_completion(
                 mutable_messages=mutable_messages,
@@ -589,7 +827,6 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
                 service_tier=service_tier,
                 stop=stop,
                 store=store,
-                stream=stream,
                 stream_options=stream_options,
                 temperature=temperature,
                 top_logprobs=top_logprobs,
@@ -599,34 +836,8 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
                 extra_query=extra_query,
                 extra_body=extra_body,
                 timeout=timeout,
-                on_stream_event=on_stream_event,
-                on_text_delta=on_text_delta,
             )
-
-            completion_choice = completion.choices[0]
-            if completion_choice.finish_reason == "stop":
+            if await self._append_tool_results(completion, mutable_messages):
                 return completion
-            elif completion_choice.finish_reason != "tool_calls":
-                raise ValueError(f"Unexpected finish reason: {completion.choices[0].finish_reason}")
-
-            mutable_messages.append(cast(ChatCompletionMessageParam, completion_choice.message))
-            assert completion_choice.message.tool_calls is not None  # type guard
-
-            for tool_call in completion_choice.message.tool_calls:
-                name, args_or_err = self._run_prep_tool_name_and_args(tool_call)
-                if isinstance(args_or_err, JSONDecodeError):
-                    mutable_messages.append(
-                        ChatCompletionToolMessageParam(
-                            role="tool",
-                            tool_call_id=tool_call.id,
-                            content=f"Error decoding arguments for tool `{name}`: {str(args_or_err)}",
-                        )
-                    )
-                    continue
-
-                result = await self._call_tool(name, cast(dict, args_or_err))
-                mutable_messages.append(
-                    ChatCompletionToolMessageParam(role="tool", tool_call_id=tool_call.id, content=result)
-                )
 
         raise RuntimeError(f"Maximum iterations ({max_iterations}) reached without completion")

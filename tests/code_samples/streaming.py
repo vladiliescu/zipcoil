@@ -71,11 +71,10 @@ messages: list[ChatCompletionUserMessageParam] = [
 ]
 
 
-def on_text_delta(delta: str) -> None:
-    print(delta, end="", flush=True)
-
-
-result = agent.run(messages=messages, stream=True, on_text_delta=on_text_delta)
+stream = agent.run(messages=messages, stream=True)
+for chunk in stream:
+    text = chunk.choices[0].delta.content
+    if text:
+        print(text, end="", flush=True)
 
 print("\n")
-print(result.choices[0].message.content)
