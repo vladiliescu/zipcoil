@@ -54,7 +54,7 @@ pythonpath = ["src"]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=1.1.0",
-    "python-dotenv==1.1.1",
+    "python-dotenv==1.2.2",
     "requests",
     "beautifulsoup4",
     "ruff>=0.5.0",
