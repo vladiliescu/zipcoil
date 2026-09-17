@@ -45,6 +45,8 @@ def client() -> Iterator[AzureOpenAI]:
         pytest.param(list[list[int]], [[2, 3], [5]], id="nested-list"),
         pytest.param(int | float, 7, id="union-integer"),
         pytest.param(int | float, 2.5, id="union-float"),
+        pytest.param(list[int | float], [2, 3.5], id="list-of-unions"),
+        pytest.param(int | float | None, None, id="nullable-numeric-union"),
         pytest.param(Color | None, "red", id="nullable-enum-value"),
         pytest.param(Color | None, None, id="nullable-enum-null"),
         pytest.param(dict[str, int], {"apples": 2, "oranges": 3}, id="dictionary"),

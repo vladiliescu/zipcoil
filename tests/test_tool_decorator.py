@@ -44,7 +44,7 @@ class TestToolDecorator:
         assert properties["name"]["type"] == "string"
         assert properties["name"]["description"] == "The user's name"
 
-    def test_function_with_multiple_args_and_optional(self):
+    def test_function_with_multiple_args_and_optional(self) -> None:
         """Test a function with multiple arguments including optional ones."""
 
         @tool
@@ -76,10 +76,10 @@ class TestToolDecorator:
         assert properties["x"]["description"] == "First number (integer)"
         assert properties["y"]["type"] == "number"
         assert properties["y"]["description"] == "Second number (float)"
-        assert properties["operation"]["type"] == ["string", "null"]
+        assert properties["operation"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
         assert properties["operation"]["description"] == "Type of operation to perform"
 
-    def test_function_with_optional_type_hint(self):
+    def test_function_with_optional_type_hint(self) -> None:
         """Test a function with Optional type hints."""
 
         @tool
@@ -101,7 +101,7 @@ class TestToolDecorator:
 
         properties = cast(Dict[str, Any], params_dict["properties"])
         assert properties["query"]["type"] == "string"
-        assert properties["limit"]["type"] == ["integer", "null"]
+        assert properties["limit"]["anyOf"] == [{"type": "integer"}, {"type": "null"}]
 
     def test_function_with_various_types(self):
         """Test a function with various Python types."""

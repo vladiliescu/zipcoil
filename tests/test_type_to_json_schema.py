@@ -1,5 +1,7 @@
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+
+import pytest
 
 from zipcoil.core import _type_to_json_schema
 
@@ -31,30 +33,54 @@ class TestTypeToJsonSchema:
         assert _type_to_json_schema(Color) == {"type": "string", "enum": ["red", "green", "blue"]}
         assert _type_to_json_schema(Mixed) == {"type": "string", "enum": ["1", "second", "False"]}
 
-    def test_generic_types(self):
+    def test_generic_types(self) -> None:
         """Test conversion of generic types."""
-        assert _type_to_json_schema(List[str]) == {"type": "array"}
+        assert _type_to_json_schema(List[str]) == {"type": "array", "items": {"type": "string"}}
         assert _type_to_json_schema(Dict[str, int]) == {"type": "object"}
 
-    def test_optional_types(self):
-        """Test conversion of Optional types."""
-        assert _type_to_json_schema(Optional[str]) == {"type": ["string", "null"]}
-        assert _type_to_json_schema(Optional[int]) == {"type": ["integer", "null"]}
-        assert _type_to_json_schema(Optional[bool]) == {"type": ["boolean", "null"]}
-        assert _type_to_json_schema(Optional[Color]) == {
-            "type": ["string", "null"],
-            "enum": ["red", "green", "blue"],
-        }
+    @pytest.mark.parametrize(
+        ("annotation", "value_schema"),
+        [
+            (Optional[str], {"type": "string"}),
+            (str | None, {"type": "string"}),
+            (Optional[int], {"type": "integer"}),
+            (int | None, {"type": "integer"}),
+            (Optional[bool], {"type": "boolean"}),
+            (bool | None, {"type": "boolean"}),
+            (Optional[Color], {"type": "string", "enum": ["red", "green", "blue"]}),
+            (Color | None, {"type": "string", "enum": ["red", "green", "blue"]}),
+            (list[int] | None, {"type": "array", "items": {"type": "integer"}}),
+        ],
+    )
+    def test_optional_types(self, annotation: Any, value_schema: dict[str, Any]) -> None:
+        assert _type_to_json_schema(annotation) == {"anyOf": [value_schema, {"type": "null"}]}
 
-    def test_new_union_syntax(self):
-        """Test conversion of new union syntax (T | None)."""
-        assert _type_to_json_schema(str | None) == {"type": ["string", "null"]}
-        assert _type_to_json_schema(int | None) == {"type": ["integer", "null"]}
-        assert _type_to_json_schema(bool | None) == {"type": ["boolean", "null"]}
-        assert _type_to_json_schema(Color | None) == {
-            "type": ["string", "null"],
-            "enum": ["red", "green", "blue"],
-        }
+    @pytest.mark.parametrize(
+        ("annotation", "expected"),
+        [
+            (list[int], {"type": "array", "items": {"type": "integer"}}),
+            (
+                list[list[int]],
+                {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
+            ),
+            (int | float, {"anyOf": [{"type": "integer"}, {"type": "number"}]}),
+            (Union[int, float], {"anyOf": [{"type": "integer"}, {"type": "number"}]}),
+            (
+                int | float | None,
+                {"anyOf": [{"type": "integer"}, {"type": "number"}, {"type": "null"}]},
+            ),
+            (
+                list[int | float],
+                {"type": "array", "items": {"anyOf": [{"type": "integer"}, {"type": "number"}]}},
+            ),
+            (
+                list[int] | str,
+                {"anyOf": [{"type": "array", "items": {"type": "integer"}}, {"type": "string"}]},
+            ),
+        ],
+    )
+    def test_lists_and_unions(self, annotation: Any, expected: dict[str, Any]) -> None:
+        assert _type_to_json_schema(annotation) == expected
 
     def test_unknown_types(self):
         """Test that unknown types default to string."""

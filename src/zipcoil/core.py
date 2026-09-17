@@ -45,7 +45,7 @@ def _enum_type_to_json_schema(type_hint):
     return {"type": json_type, "enum": [member.value for member in type_hint]}
 
 
-def _type_to_json_schema(type_hint) -> dict:
+def _type_to_json_schema(type_hint: Any) -> dict[str, Any]:
     """Convert Python type hints to JSON schema types."""
     if inspect.isclass(type_hint) and issubclass(type_hint, Enum):
         return _enum_type_to_json_schema(type_hint)
@@ -58,19 +58,17 @@ def _type_to_json_schema(type_hint) -> dict:
         return {"type": "number"}
     elif type_hint == bool:
         return {"type": "boolean"}
+    elif type_hint is type(None):
+        return {"type": "null"}
     elif type_hint == list or get_origin(type_hint) is list:
-        return {"type": "array"}
+        schema: dict[str, Any] = {"type": "array"}
+        if args := get_args(type_hint):
+            schema["items"] = _type_to_json_schema(args[0])
+        return schema
     elif type_hint == dict or get_origin(type_hint) is dict:
         return {"type": "object"}
-    elif get_origin(type_hint) is Union or isinstance(type_hint, types.UnionType):
-        # Handle Optional[T] which is Union[T, None] or T | None
-        args = get_args(type_hint)
-        if len(args) == 2 and type(None) in args:
-            # This is Optional[T], return the schema for T
-            non_none_type = args[0] if args[1] is type(None) else args[1]
-            schema = _type_to_json_schema(non_none_type)
-            schema["type"] = [schema["type"], "null"] if isinstance(schema, dict) else [schema, "null"]
-            return schema
+    elif get_origin(type_hint) in (Union, types.UnionType):
+        return {"anyOf": [_type_to_json_schema(arg) for arg in get_args(type_hint)]}
     # Default to string for unknown types
     return {"type": "string"}
 
