@@ -18,8 +18,7 @@ from typing import (
     overload,
 )
 
-import httpx
-from openai import NOT_GIVEN, AsyncOpenAI, NotGiven, OpenAI
+from openai import NOT_GIVEN, AsyncOpenAI, NotGiven, OpenAI, Timeout
 from openai._types import Body, Headers, Query
 from openai.types import ChatModel, Metadata, ReasoningEffort
 from openai.types.chat import (
@@ -159,7 +158,7 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         extra_headers: Headers | None,
         extra_query: Query | None,
         extra_body: Body | None,
-        timeout: float | httpx.Timeout | None | NotGiven,
+        timeout: float | Timeout | None | NotGiven,
     ) -> ChatCompletion:
         return self.client.chat.completions.create(
             model=self.model,
@@ -252,7 +251,7 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         extra_headers: Headers | None,
         extra_query: Query | None,
         extra_body: Body | None,
-        timeout: float | httpx.Timeout | None | NotGiven,
+        timeout: float | Timeout | None | NotGiven,
         max_iterations: int,
     ) -> Iterator[ChatCompletionChunk]:
         if not hasattr(self.client.chat.completions, "stream"):
@@ -331,7 +330,7 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         extra_headers: Headers | None = None,
         extra_query: Query | None = None,
         extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        timeout: float | Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
     ) -> Iterator[ChatCompletionChunk]:
         ...
@@ -366,7 +365,7 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         extra_headers: Headers | None = None,
         extra_query: Query | None = None,
         extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        timeout: float | Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
     ) -> ChatCompletion:
         ...
@@ -403,7 +402,7 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         extra_headers: Headers | None = None,
         extra_query: Query | None = None,
         extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        timeout: float | Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
     ) -> ChatCompletion | Iterator[ChatCompletionChunk]:
         mutable_messages = list(messages)
@@ -529,7 +528,7 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         extra_headers: Headers | None,
         extra_query: Query | None,
         extra_body: Body | None,
-        timeout: float | httpx.Timeout | None | NotGiven,
+        timeout: float | Timeout | None | NotGiven,
     ) -> ChatCompletion:
         return await self.client.chat.completions.create(
             model=self.model,
@@ -622,7 +621,7 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         extra_headers: Headers | None,
         extra_query: Query | None,
         extra_body: Body | None,
-        timeout: float | httpx.Timeout | None | NotGiven,
+        timeout: float | Timeout | None | NotGiven,
         max_iterations: int,
     ) -> AsyncIterator[ChatCompletionChunk]:
         if not hasattr(self.client.chat.completions, "stream"):
@@ -701,7 +700,7 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         extra_headers: Headers | None = None,
         extra_query: Query | None = None,
         extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        timeout: float | Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
     ) -> AsyncIterator[ChatCompletionChunk]:
         ...
@@ -736,7 +735,7 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         extra_headers: Headers | None = None,
         extra_query: Query | None = None,
         extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        timeout: float | Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
     ) -> ChatCompletion:
         ...
@@ -773,7 +772,7 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         extra_headers: Headers | None = None,
         extra_query: Query | None = None,
         extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        timeout: float | Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
     ) -> ChatCompletion | AsyncIterator[ChatCompletionChunk]:
         mutable_messages = list(messages)

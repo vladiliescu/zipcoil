@@ -1,6 +1,6 @@
 [project]
 name = "zipcoil"
-version = "0.3.0"
+version = "0.3.1"
 description = "Zipcoil simplifies OpenAI tool usage"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,9 +14,11 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
-dependencies = ["openai>=1.0.0", "docstring-parser>=0.16"]
+dependencies = ["openai>=1.95.1", "docstring-parser>=0.16"]
 
 
 [tool.setuptools.packages.find]
@@ -52,13 +54,13 @@ pythonpath = ["src"]
 [dependency-groups]
 # uv-only groups for local development; not published as pip extras
 dev = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=1.1.0",
-    "python-dotenv==1.2.2",
-    "requests",
-    "beautifulsoup4",
-    "ruff>=0.5.0",
-    "pyright[nodejs]>=1.1.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "python-dotenv==1.2.3",
+    "requests==2.34.2",
+    "beautifulsoup4==4.15.0",
+    "ruff==0.16.8",
+    "ty==0.0.81"
 ]
 build = [
     "build==1.2.2.post1",
