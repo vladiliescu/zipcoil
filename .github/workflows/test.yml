@@ -40,3 +40,27 @@ jobs:
 
     - name: Run type checking
       run: uv run ty check .
+
+  sdk-compatibility:
+    name: OpenAI ${{ matrix.openai-version }} / Python 3.11
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        openai-version: ['1.95.1', '2.0.0', '2.54.0', '3.0.0', '3.14.1']
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        check-latest: true
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v6
+
+    - name: Run tests against OpenAI ${{ matrix.openai-version }}
+      # The simulated HTTP transport uses httpx, which newer SDKs no longer require.
+      run: uv run --locked --group dev --with "openai==${{ matrix.openai-version }}" --with httpx pytest
