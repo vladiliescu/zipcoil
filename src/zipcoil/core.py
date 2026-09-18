@@ -19,6 +19,14 @@ from openai.types.chat import ChatCompletionToolParam
 
 from zipcoil.types import AsyncToolProtocol, ToolDecoratorProtocol, ToolProtocol
 
+_PRIMITIVE_JSON_TYPES: dict[type, str] = {
+    str: "string",
+    int: "integer",
+    float: "number",
+    bool: "boolean",
+    type(None): "null",
+}
+
 
 def _enum_type_to_json_schema(type_hint):
     """Convert Enum types to JSON schema format."""
@@ -51,16 +59,8 @@ def _type_to_json_schema(type_hint: Any) -> dict[str, Any]:
     if inspect.isclass(type_hint) and issubclass(type_hint, Enum):
         return _enum_type_to_json_schema(type_hint)
 
-    if type_hint == str:
-        return {"type": "string"}
-    elif type_hint == int:
-        return {"type": "integer"}
-    elif type_hint == float:
-        return {"type": "number"}
-    elif type_hint == bool:
-        return {"type": "boolean"}
-    elif type_hint is type(None):
-        return {"type": "null"}
+    if inspect.isclass(type_hint) and (json_type := _PRIMITIVE_JSON_TYPES.get(type_hint)):
+        return {"type": json_type}
     elif type_hint == list or get_origin(type_hint) is list:
         args = get_args(type_hint)
         return {"type": "array", "items": _type_to_json_schema(args[0]) if args else {}}
