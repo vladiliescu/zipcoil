@@ -18,7 +18,7 @@ from typing import (
 from docstring_parser import DocstringStyle, ParseError, parse
 from openai.types.chat import ChatCompletionToolParam
 
-from zipcoil.types import AsyncToolProtocol, ToolProtocol
+from zipcoil.types import AsyncToolProtocol, ToolDecoratorProtocol, ToolProtocol
 
 
 def _enum_type_to_json_schema(type_hint):
@@ -61,12 +61,11 @@ def _type_to_json_schema(type_hint: Any) -> dict[str, Any]:
     elif type_hint is type(None):
         return {"type": "null"}
     elif type_hint == list or get_origin(type_hint) is list:
-        schema: dict[str, Any] = {"type": "array"}
-        if args := get_args(type_hint):
-            schema["items"] = _type_to_json_schema(args[0])
-        return schema
+        args = get_args(type_hint)
+        return {"type": "array", "items": _type_to_json_schema(args[0]) if args else {}}
     elif type_hint == dict or get_origin(type_hint) is dict:
-        return {"type": "object"}
+        args = get_args(type_hint)
+        return {"type": "object", "additionalProperties": _type_to_json_schema(args[1]) if args else {}}
     elif get_origin(type_hint) in (Union, types.UnionType):
         return {"anyOf": [_type_to_json_schema(arg) for arg in get_args(type_hint)]}
     # Default to string for unknown types
@@ -90,17 +89,27 @@ def _parse_docstring_args(docstring) -> dict:
 
 
 @overload
-def tool(func: Callable[..., Awaitable[Any]]) -> AsyncToolProtocol: ...
+def tool(func: Callable[..., Awaitable[Any]], *, strict: bool = True) -> AsyncToolProtocol: ...
 
 
 @overload
-def tool(func: Callable[..., Any]) -> ToolProtocol: ...
+def tool(func: Callable[..., Any], *, strict: bool = True) -> ToolProtocol: ...
 
 
-def tool(func: Callable[..., Any]) -> Union[ToolProtocol, AsyncToolProtocol]:
+@overload
+def tool(func: None = None, *, strict: bool = True) -> ToolDecoratorProtocol: ...
+
+
+def tool(
+    func: Callable[..., Any] | None = None, *, strict: bool = True
+) -> ToolProtocol | AsyncToolProtocol | ToolDecoratorProtocol:
     """
     Decorator that extracts function metadata and converts it to the OpenAI function-calling JSON schema format.
+
+    Strict mode defaults to True. Use @tool(strict=False) for dictionary or bare-list inputs.
     """
+    if func is None:
+        return functools.partial(tool, strict=strict)
 
     if asyncio.iscoroutinefunction(func):
 
@@ -148,7 +157,7 @@ def tool(func: Callable[..., Any]) -> Union[ToolProtocol, AsyncToolProtocol]:
                 "required": required,
                 "additionalProperties": False,
             },
-            "strict": True,
+            "strict": strict,
         },
     }
 

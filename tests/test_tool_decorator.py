@@ -1,15 +1,48 @@
 from enum import Enum
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, assert_type, cast
 
+import pytest
 from dotenv import load_dotenv
 
 from zipcoil import tool
+from zipcoil.types import AsyncToolProtocol, ToolProtocol
 
 load_dotenv()
 
 
 class TestToolDecorator:
     """Test the @tool decorator functionality."""
+
+    @pytest.mark.parametrize("strict", [True, False])
+    def test_configured_sync_tool(self, strict: bool) -> None:
+        @tool(strict=strict)
+        def total(values: dict[str, int]) -> int:
+            """Add the supplied values."""
+            return sum(values.values())
+
+        assert_type(total, ToolProtocol)
+        assert total(values={"apples": 2, "oranges": 3}) == 5
+        assert total.tool_schema["function"]["strict"] is strict
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("strict", [True, False])
+    async def test_configured_async_tool(self, strict: bool) -> None:
+        @tool(strict=strict)
+        async def total(values: dict[str, int]) -> int:
+            """Add the supplied values."""
+            return sum(values.values())
+
+        assert_type(total, AsyncToolProtocol)
+        assert await total(values={"apples": 2, "oranges": 3}) == 5
+        assert total.tool_schema["function"]["strict"] is strict
+
+    def test_parenthesized_decorator_defaults_to_strict(self) -> None:
+        @tool()
+        def echo(values: list[int]) -> list[int]:
+            return values
+
+        assert echo(values=[2, 3]) == [2, 3]
+        assert echo.tool_schema["function"]["strict"] is True
 
     def test_simple_function_with_single_required_arg(self):
         """Test a function with a single required string argument."""

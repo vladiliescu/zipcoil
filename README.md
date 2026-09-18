@@ -107,6 +107,66 @@ print(result.choices[0].message.content)
 
 ## Advanced Usage
 
+### Strict Mode
+
+`@tool` uses `strict=True` by default, following [OpenAI's recommendation](https://developers.openai.com/api/docs/guides/function-calling#strict-mode).
+OpenAI recommends strict mode but does not require it for Chat Completions tool calls.
+
+Strict mode constrains the model's arguments to the generated schema. For example,
+an `int` parameter must receive a JSON integer. With `strict=False`, OpenAI still
+receives the schema and tries to follow it, but may supply a wrong type or omit an
+argument. Zipcoil does not validate Python annotations at runtime.
+
+#### Dictionaries
+
+A function accepting `dict[str, int]` might receive `{"apples": 2, "oranges": 3}`
+on one call and `{"books": 4}` on another. Its keys are not known when the function
+is decorated.
+
+OpenAI's strict mode requires object schemas to declare every permitted key and
+forbid additional keys. Forbidding additional keys without declaring any would
+allow only an empty dictionary, which would not describe this function correctly.
+
+Use non-strict mode for dictionary inputs:
+
+```python
+@tool(strict=False)
+def total(values: dict[str, int]) -> int:
+    """Add the supplied values."""
+    return sum(values.values())
+```
+
+In this example, Zipcoil exposes `values` as an object accepting any string key, with integer
+values. Dictionary values can also have supported list, union, or dictionary
+annotations; Zipcoil exposes them recursively. JSON object keys are always
+strings, so use string keys in your dictionary annotations. Zipcoil does not
+convert keys into other Python types.
+
+#### Lists
+
+`list[int]` describes each element as an integer and works in strict mode. A bare
+`list` specifies no element type: it might contain `[2, "hello", None]`, or nested
+lists and dictionaries. Its schema allows any JSON value as an element, which
+requires non-strict mode:
+
+```python
+@tool(strict=False)
+def count(values: list) -> int:
+    """Count the supplied values."""
+    return len(values)
+```
+
+If you know the possible element types, use an annotation such as
+`list[int | str | None]` and keep strict mode.
+
+Set `strict=False` on a tool when any input is a dictionary or bare list, including
+inside another list or union. For example, `list[dict[str, int]]` also needs it.
+The setting applies to **all arguments of that tool**. Other tools select their
+own strict setting independently.
+
+These restrictions concern inputs from the model. A tool can return a dictionary
+or list regardless of its strict setting.
+
 ### Complex Type Support
 
 Zipcoil supports various Python types including enums, optionals, and unions:
@@ -120,7 +180,7 @@ class Priority(Enum):
     MEDIUM = 2
     HIGH = 3
 
-@tool
+@tool(strict=False)
 def create_task(
     title: str,
     description: Optional[str],
@@ -137,8 +197,11 @@ def create_task(
         tags: List of tags for the task
         metadata: Additional metadata as key-value pairs
     """
-    return f"Created task '{title}' with priority {priority.name}"
+    return f"Created task '{title}' with priority {Priority(priority).name}"
 ```
+
+This example uses `strict=False` because `metadata` is a dictionary. Enum arguments
+arrive as their JSON values, so `Priority(priority)` converts the value to an enum.
 
 ### Error Handling
 
@@ -199,15 +262,22 @@ Zipcoil automatically converts Python types to OpenAI's JSON schema:
 | `int` | `integer` | |
 | `float` | `number` | |
 | `bool` | `boolean` | |
-| `list` | `array` | |
-| `dict` | `object` | |
-| `Optional[T]` | `[T, "null"]` | Union with null |
-| `Union[T, U]` | Mixed type | For Optional types |
-| `Enum` | `enum` | Extracts enum values |
+| `list[T]` | `array` with `items` | Describes element type recursively |
+| `list` | `array` with unrestricted `items` | Requires `strict=False` |
+| `dict[str, T]` | `object` with typed `additionalProperties` | Requires `strict=False`; describes values recursively |
+| `dict` | `object` with unrestricted `additionalProperties` | Requires `strict=False` |
+| `Optional[T]`, `T \| None` | `anyOf` for T and `null` | Also allows null for nullable enums |
+| `Union[T, U]`, `T \| U` | `anyOf` | Describes each alternative recursively |
+| `Enum` | Primitive type with `enum` | Extracts enum values |
 
 ## API Reference
 
 ### `@tool` Decorator
+
+Use `@tool`, `@tool()`, or `@tool(strict=True)` for strict mode. Use
+`@tool(strict=False)` for non-strict mode. Both forms support synchronous and
+asynchronous functions. See [Strict Mode](#strict-mode) for the tradeoffs and
+dictionary/list examples.
 
 Converts a Python function into an OpenAI tool. The function should:
 - Have type hints for all parameters
@@ -291,7 +361,7 @@ just check
 ## Requirements
 
 - Python 3.11+
-- OpenAI Python library (≥1.0.0)
+- OpenAI Python library (≥1.95.1)
 - docstring-parser (≥0.16)
 
 ## License

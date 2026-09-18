@@ -20,6 +20,7 @@ from typing import (
 
 from openai import NOT_GIVEN, AsyncOpenAI, NotGiven, OpenAI, Timeout
 from openai._types import Body, Headers, Query
+from openai.lib.streaming.chat import AsyncChatCompletionStream
 from openai.types import ChatModel, Metadata, ReasoningEffort
 from openai.types.chat import (
     ChatCompletion,
@@ -38,7 +39,6 @@ from zipcoil.types import AsyncToolProtocol, ToolProtocol
 
 ClientT = TypeVar("ClientT", OpenAI, AsyncOpenAI)
 ToolT = TypeVar("ToolT", bound=Union[ToolProtocol, AsyncToolProtocol])
-StreamEvent = Any
 
 
 class BaseAgent(Generic[ClientT, ToolT]):
@@ -254,9 +254,6 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         timeout: float | Timeout | None | NotGiven,
         max_iterations: int,
     ) -> Iterator[ChatCompletionChunk]:
-        if not hasattr(self.client.chat.completions, "stream"):
-            raise RuntimeError("Streaming requires an OpenAI client that supports `chat.completions.stream()`.")
-
         for _ in range(max_iterations):
             with self.client.chat.completions.stream(
                 model=self.model,
@@ -290,10 +287,9 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
                 timeout=timeout,
             ) as completion_stream:
                 for event in completion_stream:
-                    stream_event = cast(StreamEvent, event)
-                    if stream_event.type == "chunk":
-                        yield cast(ChatCompletionChunk, stream_event.chunk)
-                completion = cast(ChatCompletion, completion_stream.get_final_completion())
+                    if event.type == "chunk":
+                        yield event.chunk
+                completion = completion_stream.get_final_completion()
 
             if self._append_tool_results(completion, mutable_messages):
                 return
@@ -332,8 +328,7 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         extra_body: Body | None = None,
         timeout: float | Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
-    ) -> Iterator[ChatCompletionChunk]:
-        ...
+    ) -> Iterator[ChatCompletionChunk]: ...
 
     @overload
     def run(
@@ -367,8 +362,7 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         extra_body: Body | None = None,
         timeout: float | Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
-    ) -> ChatCompletion:
-        ...
+    ) -> ChatCompletion: ...
 
     def run(
         self,
@@ -624,14 +618,13 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         timeout: float | Timeout | None | NotGiven,
         max_iterations: int,
     ) -> AsyncIterator[ChatCompletionChunk]:
-        if not hasattr(self.client.chat.completions, "stream"):
-            raise RuntimeError("Streaming requires an OpenAI client that supports `chat.completions.stream()`.")
-
+        # The SDK's async .stream() helper rejects non-strict tools; use its wrapper directly.
         for _ in range(max_iterations):
-            async with self.client.chat.completions.stream(
+            raw_stream = await self.client.chat.completions.create(
                 model=self.model,
                 messages=mutable_messages,
                 tools=self.tool_schemas,
+                stream=True,
                 n=1,  # Only one completion at a time otherwise the logic gets messy
                 audio=audio,
                 frequency_penalty=frequency_penalty,
@@ -658,12 +651,16 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
                 extra_query=extra_query,
                 extra_body=extra_body,
                 timeout=timeout,
+            )
+            async with AsyncChatCompletionStream(
+                raw_stream=raw_stream,
+                response_format=response_format,
+                input_tools=self.tool_schemas,
             ) as completion_stream:
                 async for event in completion_stream:
-                    stream_event = cast(StreamEvent, event)
-                    if stream_event.type == "chunk":
-                        yield cast(ChatCompletionChunk, stream_event.chunk)
-                completion = cast(ChatCompletion, await completion_stream.get_final_completion())
+                    if event.type == "chunk":
+                        yield event.chunk
+                completion = await completion_stream.get_final_completion()
 
             if await self._append_tool_results(completion, mutable_messages):
                 return
@@ -702,8 +699,7 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         extra_body: Body | None = None,
         timeout: float | Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
-    ) -> AsyncIterator[ChatCompletionChunk]:
-        ...
+    ) -> AsyncIterator[ChatCompletionChunk]: ...
 
     @overload
     async def run(
@@ -737,8 +733,7 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
         extra_body: Body | None = None,
         timeout: float | Timeout | None | NotGiven = NOT_GIVEN,
         max_iterations: int = 10,
-    ) -> ChatCompletion:
-        ...
+    ) -> ChatCompletion: ...
 
     async def run(
         self,

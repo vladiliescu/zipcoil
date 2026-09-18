@@ -21,22 +21,51 @@ class Mixed(Enum):
 class TestTypeToJsonSchema:
     """Test the _type_to_json_schema helper function."""
 
-    def test_basic_types(self):
+    def test_basic_types(self) -> None:
         """Test conversion of basic Python types."""
 
         assert _type_to_json_schema(str) == {"type": "string"}
         assert _type_to_json_schema(int) == {"type": "integer"}
         assert _type_to_json_schema(float) == {"type": "number"}
         assert _type_to_json_schema(bool) == {"type": "boolean"}
-        assert _type_to_json_schema(list) == {"type": "array"}
-        assert _type_to_json_schema(dict) == {"type": "object"}
+        assert _type_to_json_schema(list) == {"type": "array", "items": {}}
+        assert _type_to_json_schema(dict) == {"type": "object", "additionalProperties": {}}
         assert _type_to_json_schema(Color) == {"type": "string", "enum": ["red", "green", "blue"]}
         assert _type_to_json_schema(Mixed) == {"type": "string", "enum": ["1", "second", "False"]}
 
     def test_generic_types(self) -> None:
         """Test conversion of generic types."""
         assert _type_to_json_schema(List[str]) == {"type": "array", "items": {"type": "string"}}
-        assert _type_to_json_schema(Dict[str, int]) == {"type": "object"}
+        assert _type_to_json_schema(Dict[str, int]) == {"type": "object", "additionalProperties": {"type": "integer"}}
+
+    @pytest.mark.parametrize(
+        ("annotation", "expected"),
+        [
+            (List, {"type": "array", "items": {}}),
+            (Dict, {"type": "object", "additionalProperties": {}}),
+            (dict[str, int], {"type": "object", "additionalProperties": {"type": "integer"}}),
+            (
+                dict[str, list[int | float]],
+                {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {"anyOf": [{"type": "integer"}, {"type": "number"}]},
+                    },
+                },
+            ),
+            (
+                list[dict[str, int]],
+                {"type": "array", "items": {"type": "object", "additionalProperties": {"type": "integer"}}},
+            ),
+            (
+                dict[str, int] | None,
+                {"anyOf": [{"type": "object", "additionalProperties": {"type": "integer"}}, {"type": "null"}]},
+            ),
+        ],
+    )
+    def test_dictionaries_and_bare_containers(self, annotation: Any, expected: dict[str, Any]) -> None:
+        assert _type_to_json_schema(annotation) == expected
 
     @pytest.mark.parametrize(
         ("annotation", "value_schema"),
