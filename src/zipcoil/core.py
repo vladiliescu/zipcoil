@@ -1,4 +1,3 @@
-import asyncio
 import functools
 import inspect
 import types
@@ -125,7 +124,7 @@ def tool(
     if func is None:
         return functools.partial(tool, strict=strict)
 
-    if asyncio.iscoroutinefunction(func):
+    if inspect.iscoroutinefunction(func):
 
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
@@ -156,7 +155,7 @@ def tool(
             json_type = _type_to_json_schema(type_hint)
             if strict and not _supports_strict_mode(json_type):
                 raise ValueError(
-                    f"Tool {func.__name__!r}: parameter {param_name!r} ({type_hint}) requires @tool(strict=False)."
+                    f"Tool {wrapper.__name__!r}: parameter {param_name!r} ({type_hint}) requires @tool(strict=False)."
                 )
 
             properties[param_name] = json_type
@@ -167,7 +166,7 @@ def tool(
     tool_schema: ChatCompletionToolParam = {
         "type": "function",
         "function": {
-            "name": func.__name__,
+            "name": wrapper.__name__,
             "description": description,
             "parameters": {
                 "type": "object",
@@ -179,9 +178,6 @@ def tool(
         },
     }
 
-    wrapper.tool_schema = tool_schema  # type: ignore[attr-defined]
-
-    # Help static type checkers
-    if asyncio.iscoroutinefunction(func):
-        return cast(AsyncToolProtocol, wrapper)
-    return cast(ToolProtocol, wrapper)
+    wrapped_tool = cast(ToolProtocol | AsyncToolProtocol, wrapper)
+    wrapped_tool.tool_schema = tool_schema
+    return wrapped_tool

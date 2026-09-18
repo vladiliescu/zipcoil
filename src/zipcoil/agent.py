@@ -1,4 +1,4 @@
-import asyncio
+import inspect
 import json
 import logging
 from json import JSONDecodeError
@@ -114,7 +114,7 @@ class Agent(BaseAgent[OpenAI, ToolProtocol]):
         super().__init__(model, client, tools)
 
         for tool_func in self.tools:
-            if asyncio.iscoroutinefunction(tool_func):
+            if inspect.iscoroutinefunction(tool_func):
                 tool_name = tool_func.tool_schema["function"]["name"]
                 raise ValueError(
                     f"Tool `{tool_name}` is an async function, but this agent is synchronous. Please use AsyncAgent instead."
@@ -487,7 +487,7 @@ class AsyncAgent(BaseAgent[AsyncOpenAI, Union[ToolProtocol, AsyncToolProtocol]])
             return self._tool_not_found(name)
 
         try:
-            if asyncio.iscoroutinefunction(user_tool):
+            if inspect.iscoroutinefunction(user_tool):
                 result = await user_tool(**args)
             else:
                 result = user_tool(**args)
