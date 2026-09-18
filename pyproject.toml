@@ -28,7 +28,7 @@ where = ["src"]
 zipcoil = ["py.typed"]
 
 [project.urls]
-Homepage = "https://github.com/vladiliescu/zipcoil"
+Homepage = "https://vladiliescu.net/apps/zipcoil"
 Repository = "https://github.com/vladiliescu/zipcoil"
 
 [build-system]
