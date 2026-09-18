@@ -16,24 +16,24 @@ class TestToolDecorator:
     @pytest.mark.parametrize("strict", [True, False])
     def test_configured_sync_tool(self, strict: bool) -> None:
         @tool(strict=strict)
-        def total(values: dict[str, int]) -> int:
+        def total(values: list[int]) -> int:
             """Add the supplied values."""
-            return sum(values.values())
+            return sum(values)
 
         assert_type(total, ToolProtocol)
-        assert total(values={"apples": 2, "oranges": 3}) == 5
+        assert total(values=[2, 3]) == 5
         assert total.tool_schema["function"]["strict"] is strict
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("strict", [True, False])
     async def test_configured_async_tool(self, strict: bool) -> None:
         @tool(strict=strict)
-        async def total(values: dict[str, int]) -> int:
+        async def total(values: list[int]) -> int:
             """Add the supplied values."""
-            return sum(values.values())
+            return sum(values)
 
         assert_type(total, AsyncToolProtocol)
-        assert await total(values={"apples": 2, "oranges": 3}) == 5
+        assert await total(values=[2, 3]) == 5
         assert total.tool_schema["function"]["strict"] is strict
 
     def test_parenthesized_decorator_defaults_to_strict(self) -> None:
@@ -43,6 +43,68 @@ class TestToolDecorator:
 
         assert echo(values=[2, 3]) == [2, 3]
         assert echo.tool_schema["function"]["strict"] is True
+
+    @pytest.mark.parametrize(
+        ("annotation", "value"),
+        [
+            (Any, 7),
+            (list, [2, "hello", None]),
+            (List, [2, "hello", None]),
+            (dict, {"apples": 2}),
+            (Dict, {"apples": 2}),
+            (dict[str, int], {"apples": 2}),
+            (Dict[str, int], {"apples": 2}),
+            (list[Any], [2, "hello", None]),
+            (dict[str, Any], {"apples": 2}),
+            (list[dict[str, int]], [{"apples": 2}]),
+            (list[list], [[2, "hello"]]),
+            (int | Any, None),
+            (int | dict[str, int], {"apples": 2}),
+            (Optional[List], None),
+            (list[int | list[Any]], [2, ["hello"]]),
+        ],
+    )
+    def test_inputs_requiring_non_strict_mode(self, annotation: Any, value: Any) -> None:
+        def echo(value: annotation) -> Any:
+            return value
+
+        with pytest.raises(ValueError, match=r"Tool 'echo': parameter 'value'.*@tool\(strict=False\)"):
+            tool(echo)
+
+        decorated = tool(echo, strict=False)
+        assert decorated(value=value) == value
+        assert decorated.tool_schema["function"]["strict"] is False
+
+    @pytest.mark.asyncio
+    async def test_async_input_requires_non_strict_mode(self) -> None:
+        async def echo(value: list[Any]) -> Any:
+            return value
+
+        with pytest.raises(ValueError, match=r"Tool 'echo': parameter 'value'.*@tool\(strict=False\)"):
+            tool(strict=True)(echo)
+
+        decorated = tool(strict=False)(echo)
+        assert await decorated(value=[2, "hello"]) == [2, "hello"]
+
+    @pytest.mark.parametrize("annotation", [list[int], list[list[int | float | None]], Optional[str]])
+    def test_nested_strict_inputs(self, annotation: Any) -> None:
+        @tool
+        def echo(value: annotation) -> Any:
+            return value
+
+        assert echo.tool_schema["function"]["strict"] is True
+
+    @pytest.mark.parametrize(
+        ("annotation", "result"),
+        [(Any, 7), (list, [2, "hello"]), (dict[str, Any], {"apples": 2})],
+    )
+    def test_strict_mode_does_not_restrict_return_types(self, annotation: Any, result: Any) -> None:
+        @tool
+        def get_result() -> annotation:
+            return result
+
+        assert get_result() == result
+        assert get_result.tool_schema["function"]["strict"] is True
 
     def test_simple_function_with_single_required_arg(self):
         """Test a function with a single required string argument."""
@@ -144,7 +206,7 @@ class TestToolDecorator:
             SUCCESS = 1
             FAILURE = 2
 
-        @tool
+        @tool(strict=False)
         def process_data(
             text: str,
             count: int,

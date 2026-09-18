@@ -41,6 +41,18 @@ class TestTypeToJsonSchema:
     @pytest.mark.parametrize(
         ("annotation", "expected"),
         [
+            (Any, {}),
+            (list[Any], {"type": "array", "items": {}}),
+            (dict[str, Any], {"type": "object", "additionalProperties": {}}),
+            (int | Any, {"anyOf": [{"type": "integer"}, {}]}),
+        ],
+    )
+    def test_any(self, annotation: Any, expected: dict[str, Any]) -> None:
+        assert _type_to_json_schema(annotation) == expected
+
+    @pytest.mark.parametrize(
+        ("annotation", "expected"),
+        [
             (List, {"type": "array", "items": {}}),
             (Dict, {"type": "object", "additionalProperties": {}}),
             (dict[str, int], {"type": "object", "additionalProperties": {"type": "integer"}}),

@@ -6,7 +6,7 @@ Run explicitly (this file is excluded from normal pytest discovery):
 Each case runs Agent and checks the value and type received by its tool.
 At most two API requests are made per case: a tool call and a final response.
 Failures reveal current limitations; they are not marked as expected failures.
-Dictionary and bare-list cases explicitly disable strict mode.
+Dictionary, bare-list, and Any cases explicitly disable strict mode.
 """
 
 import json
@@ -57,8 +57,8 @@ def client() -> Iterator[AzureOpenAI]:
         pytest.param(list[dict[str, int]], [{"apples": 2}, {"oranges": 3}], False, id="list-of-dictionaries"),
         pytest.param(dict[str, int] | None, None, False, id="nullable-dictionary"),
         pytest.param(list, [2, "hello", None, [3], {"apples": 2}], False, id="bare-list"),
-        pytest.param(Any, 7, True, id="any-number"),
-        pytest.param(Any, {"apples": 2}, True, id="any-object"),
+        pytest.param(Any, 7, False, id="any-number"),
+        pytest.param(Any, {"apples": 2}, False, id="any-object"),
         pytest.param(Literal["red", "blue"], "red", True, id="literal"),
     ],
 )

@@ -115,7 +115,8 @@ OpenAI recommends strict mode but does not require it for Chat Completions tool 
 Strict mode constrains the model's arguments to the generated schema. For example,
 an `int` parameter must receive a JSON integer. With `strict=False`, OpenAI still
 receives the schema and tries to follow it, but may supply a wrong type or omit an
-argument. Zipcoil does not validate Python annotations at runtime.
+argument. Zipcoil checks input annotations for strict-mode compatibility when
+the function is decorated. It does not validate the values passed when a tool runs.
 
 #### Dictionaries
 
@@ -159,13 +160,32 @@ def count(values: list) -> int:
 If you know the possible element types, use an annotation such as
 `list[int | str | None]` and keep strict mode.
 
-Set `strict=False` on a tool when any input is a dictionary or bare list, including
-inside another list or union. For example, `list[dict[str, int]]` also needs it.
+#### Any
+
+`Any` allows any JSON value: a number, string, boolean, null, list, or object.
+Zipcoil describes it with an empty schema, `{}`, which places no restrictions on
+the value. This requires non-strict mode:
+
+```python
+from typing import Any
+
+@tool(strict=False)
+def echo(value: Any) -> Any:
+    """Return the supplied value unchanged."""
+    return value
+```
+
+Set `strict=False` on a tool when any input is `Any`, a dictionary, or a bare list,
+including inside another list or union. For example, `list[dict[str, int]]` and
+`list[Any]` also need it. With `strict=True`, Zipcoil raises `ValueError` when the
+function is decorated, naming the tool and parameter and recommending
+`@tool(strict=False)`. This happens before any API request.
+
 The setting applies to **all arguments of that tool**. Other tools select their
 own strict setting independently.
 
 These restrictions concern inputs from the model. A tool can return a dictionary
-or list regardless of its strict setting.
+or list, or have an `Any` return annotation, regardless of its strict setting.
 
 ### Complex Type Support
 
@@ -266,6 +286,7 @@ Zipcoil automatically converts Python types to OpenAI's JSON schema:
 | `list` | `array` with unrestricted `items` | Requires `strict=False` |
 | `dict[str, T]` | `object` with typed `additionalProperties` | Requires `strict=False`; describes values recursively |
 | `dict` | `object` with unrestricted `additionalProperties` | Requires `strict=False` |
+| `Any` | Empty schema (`{}`), allowing any JSON value | Requires `strict=False` |
 | `Optional[T]`, `T \| None` | `anyOf` for T and `null` | Also allows null for nullable enums |
 | `Union[T, U]`, `T \| U` | `anyOf` | Describes each alternative recursively |
 | `Enum` | Primitive type with `enum` | Extracts enum values |
