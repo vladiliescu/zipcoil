@@ -387,6 +387,8 @@ just check
 
 ## License
 
-This project is open-source, licensed under the GNU Lesser General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+Copyright (c) 2025-2026 Vlad Iliescu.
+
+This project is open-source, licensed under the Apache License, Version 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
