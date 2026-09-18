@@ -14,10 +14,12 @@ Zipcoil eliminates this boilerplate by providing:
 - A **simple `@tool` decorator** to help convert Python functions into OpenAI tools
 - **Automatic schema generation** from type hints and docstrings
 - **Built-in agent loop** that handles tool calling iterations
-- **Type safety** with comprehensive type hints including Optional, Union, Enum, and more
+- **Rich type-hint support**, including Optional, Union, Enum, and more
 - **Error handling** for malformed tool calls and execution errors
 - **Minimal dependencies**, built on top of the official OpenAI library
 - Works with both `OpenAI` and `AzureOpenAI` clients, in both `sync` and `async` modes
+
+Zipcoil keeps its scope small: tool schemas and the tool-calling loop for OpenAI and Azure OpenAI's Chat Completions API. Your application owns conversation storage and workflow orchestration. Zipcoil doesn't implement the Responses API yet.
 
 ## Installation
 
@@ -29,81 +31,92 @@ pip install zipcoil
 
 ## Quick Start
 
-Here's a simple example of creating an AI agent with tools:
+Set `OPENAI_API_KEY` in your environment, then define a tool and give it to an agent:
+
+```python
+from openai import OpenAI
+from zipcoil import Agent, tool
+
+
+@tool
+def add(a: int, b: int) -> int:
+    """Add two numbers.
+
+    Args:
+        a: First number.
+        b: Second number.
+    """
+    return a + b
+
+
+agent = Agent(model="gpt-4o", client=OpenAI(), tools=[add])
+messages = [{"role": "user", "content": "What is 17 + 25?"}]
+result = agent.run(messages)
+print(result.choices[0].message.content)
+```
+
+The decorator builds the tool schema from type hints and the docstring. The agent calls the function when requested by the model and sends the result back, repeating until the model finishes or the iteration limit is reached.
+
+[Async](#async) · [Azure OpenAI](#azure-openai) · [Streaming](#streaming-output)
+
+## Async
+
+Use `AsyncAgent` with `AsyncOpenAI`. This complete example uses the same `OPENAI_API_KEY` environment variable:
+
+```python
+import asyncio
+
+from openai import AsyncOpenAI
+from zipcoil import AsyncAgent, tool
+
+
+@tool
+async def add(a: int, b: int) -> int:
+    """Add two numbers.
+
+    Args:
+        a: First number.
+        b: Second number.
+    """
+    return a + b
+
+
+async def main() -> None:
+    async with AsyncOpenAI() as client:
+        agent = AsyncAgent(model="gpt-4o", client=client, tools=[add])
+        messages = [{"role": "user", "content": "What is 17 + 25?"}]
+        result = await agent.run(messages)
+        print(result.choices[0].message.content)
+
+
+asyncio.run(main())
+```
+
+`AsyncAgent` accepts both sync and async tools and awaits async tools. Sync tools run inline, so blocking I/O in them will block the event loop.
+
+## Azure OpenAI
+
+Set `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_VERSION`, and `AZURE_OPENAI_DEPLOYMENT` in your environment. Using `add` and `messages` from the synchronous [quickstart](#quick-start):
 
 ```python
 import os
-from enum import Enum
 
-from openai import AzureOpenAI, OpenAI
+from openai import AzureOpenAI
+from zipcoil import Agent
 
-from zipcoil import Agent, tool
-
-# Initialize OpenAI client
-# client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-# or the Azure OpenAI client
 client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_API_BASE"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    api_key=os.environ["AZURE_OPENAI_API_KEY"],
+    azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+    api_version=os.environ["AZURE_OPENAI_API_VERSION"],
 )
-
-
-# Define tools using the @tool decorator
-@tool
-def get_weather(city: str, unit: str = "celsius") -> str:
-    """Get the current weather for a city.
-
-    Args:
-        city: The name of the city
-        unit: Temperature unit (celsius or fahrenheit)
-    """
-    # Your weather API call here
-    return f"The weather in {city} is 22°{unit[0].upper()}"
-
-
-class MathOp(Enum):
-    ADD = 1
-    SUBTRACT = 2
-    MULTIPLY = 3
-    DIVIDE = 4
-
-
-@tool
-def calculate(x: float, y: float, operation: MathOp) -> float:
-    """Perform a mathematical calculation.
-
-    Args:
-        x: First number
-        y: Second number
-        operation: Operation to perform (add, subtract, multiply, divide)
-    """
-    # normalise int -> MathOp
-    if isinstance(operation, int):
-        try:
-            operation = MathOp(operation)
-        except ValueError as exc:
-            raise ValueError(f"Unsupported operation value: {operation}") from exc
-
-    operations = {
-        MathOp.ADD: x + y,
-        MathOp.SUBTRACT: x - y,
-        MathOp.MULTIPLY: x * y,
-        MathOp.DIVIDE: x / y if y != 0 else float("inf"),
-    }
-    return operations.get(operation, 0)
-
-
-# Create an agent with tools
-agent = Agent(model="gpt-4o", client=client, tools=[get_weather, calculate])
-
-# Run a conversation
-messages = [{"role": "user", "content": "What's the weather in Paris? Also calculate 15 * 23."}]
-
+agent = Agent(model=os.environ["AZURE_OPENAI_DEPLOYMENT"], client=client, tools=[add])
 result = agent.run(messages)
 print(result.choices[0].message.content)
-
 ```
+
+Pass your **deployment name** as `model`; it can differ from the underlying model name. Zipcoil leaves authentication, endpoints, and API-version configuration to the SDK client.
+
+For async Azure usage, pass an `AsyncAzureOpenAI` client to `AsyncAgent` with the same configuration.
 
 ## Advanced Usage
 
@@ -259,7 +272,7 @@ result = agent.run(
 ### Streaming Output
 
 Set `stream=True` to get a chunk stream compatible with `chat.completions.create(stream=True)`.
-Zipcoil still handles tool calls between streamed model turns:
+Zipcoil still handles tool calls between streamed model turns. Using the synchronous `agent` and `messages` from [Quick Start](#quick-start):
 
 ```python
 stream = agent.run(messages=messages, stream=True)
